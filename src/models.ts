@@ -1,7 +1,8 @@
-// Canonical selection + display order for the model picker.
-// `resolveModel` returns the first partial match, so `opus` resolves to the first-listed opus entry.
-// Extracted from index.ts so tests can import without activating the extension.
+import type { ProviderModelConfig } from "@oh-my-pi/pi-coding-agent";
 
+// Model metadata helpers. Runtime discovery is authoritative when the provider
+// has no explicitly configured model list; this table is retained only for the
+// legacy/static fallback path.
 export const MODEL_IDS_IN_ORDER = ["claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"];
 
 // Workaround for models that ship without a thinkingLevelMap. Sonnet 5 and
@@ -13,22 +14,204 @@ const DEFAULT_THINKING_LEVEL_MAPS: Record<string, Record<string, string>> = {
 	"claude-sonnet-4-6": { xhigh: "max" },
 };
 
-// Project pi-ai's model entries down to the fields OMP's registerProvider expects,
-// and keep MODEL_IDS_IN_ORDER ordering. IDs missing from pi-ai are silently dropped.
-// Context-dependent display labels are applied after plan/long-context config is known.
-export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: T[]) {
+export type ClaudeSupportedModel = {
+	value: string;
+	resolvedModel?: string;
+	displayName?: string;
+	supportsEffort?: boolean;
+	supportedEffortLevels?: readonly string[];
+	supportsAdaptiveThinking?: boolean;
+};
+
+type ClaudeEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+
+type PiAiModel = {
+	id: string;
+	name: string;
+	reasoning?: boolean;
+	input?: ("text" | "image")[];
+	contextWindow?: number | null;
+	maxTokens?: number | null;
+	cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	thinking?: ProviderModelConfig["thinking"];
+	thinkingLevelMap?: Record<string, string>;
+}
+
+export type ClaudeProviderModel = {
+	id: string;
+	name: string;
+	reasoning: boolean;
+	input: ("text" | "image")[];
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	contextWindow: number;
+	maxTokens: number;
+	thinking?: ProviderModelConfig["thinking"];
+	thinkingLevelMap?: Record<string, string>;
+};
+
+
+// Project pi-ai's model entries down to the fields OMP's static registration
+// expects, and keep the legacy display order. This function is intentionally
+// not used as the dynamic provider's authoritative catalog.
+export function buildModels<T extends PiAiModel>(piAiModels: T[]): ClaudeProviderModel[] {
 	return MODEL_IDS_IN_ORDER
 		.map((id) => piAiModels.find((m) => m.id === id))
 		.filter((m) => m != null)
 		// Forward thinkingLevelMap so per-model overrides (e.g. opus-4-7 mapping
 		// xhigh->xhigh instead of xhigh->max) are visible to the effort lookup.
-		.map(({ id, name, reasoning, input, contextWindow, maxTokens, thinkingLevelMap }) => ({
+		.map(({ id, name, reasoning, input, contextWindow, maxTokens, thinkingLevelMap, thinking }) => ({
 			id,
 			name,
-			reasoning, input, contextWindow, maxTokens,
+			reasoning: reasoning ?? false,
+			input: input ?? ["text"],
+			contextWindow: contextWindow ?? TWO_HUNDRED_K_CONTEXT,
+			maxTokens: maxTokens ?? DEFAULT_DYNAMIC_MAX_TOKENS,
+			thinking,
 			thinkingLevelMap: thinkingLevelMap ?? DEFAULT_THINKING_LEVEL_MAPS[id],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		}));
+}
+
+export function buildConfiguredModels<T extends PiAiModel>(
+	ids: readonly string[],
+	piAiModels: T[],
+): ClaudeProviderModel[] {
+	return ids.map((id) => {
+		const source = findPiAiMetadata({ value: id }, piAiModels);
+		const explicitOneM = /\[1m\]$/i.test(id);
+		if (!source) {
+			return {
+				id,
+				name: id,
+				reasoning: false,
+				input: ["text"] as ("text" | "image")[],
+				contextWindow: explicitOneM ? ONE_M_CONTEXT : TWO_HUNDRED_K_CONTEXT,
+				maxTokens: 16_384,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			};
+		}
+		return {
+			id,
+			name: source.name ?? id,
+			reasoning: Boolean(source.reasoning),
+			input: source.input ?? ["text"],
+			contextWindow: explicitOneM ? ONE_M_CONTEXT : source.contextWindow ?? TWO_HUNDRED_K_CONTEXT,
+			maxTokens: source.maxTokens ?? 16_384,
+			thinking: source.thinking,
+			thinkingLevelMap: source.thinkingLevelMap,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		};
+	});
+}
+
+const DEFAULT_DYNAMIC_CONTEXT_WINDOW = 128_000;
+const DEFAULT_DYNAMIC_MAX_TOKENS = 16_384;
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const SUPPORTED_EFFORTS: Record<ClaudeEffort, true> = {
+	minimal: true,
+	low: true,
+	medium: true,
+	high: true,
+	xhigh: true,
+};
+
+function isClaudeEffort(value: string): value is ClaudeEffort {
+	return Object.hasOwn(SUPPORTED_EFFORTS, value);
+}
+
+function stripOneMillionSuffix(id: string): string {
+	return id.replace(/\[1m\]$/i, "");
+}
+
+function findPiAiMetadata(
+	info: ClaudeSupportedModel,
+	piAiModels: readonly PiAiModel[],
+): PiAiModel | undefined {
+	const strippedValue = stripOneMillionSuffix(info.value);
+	const versionParts = /\[1m\]$/i.test(info.value) ? strippedValue.match(/^(.*)-(\d+)$/) : null;
+	const ids = [
+		info.resolvedModel,
+		stripOneMillionSuffix(info.resolvedModel ?? ""),
+		strippedValue,
+		info.value,
+		versionParts ? `${versionParts[1]}.${versionParts[2]}` : undefined,
+		versionParts?.[1],
+	];
+	for (const id of ids) {
+		if (!id) continue;
+		const match = piAiModels.find((model) => model.id === id);
+		if (match) return match;
+	}
+	return undefined;
+}
+function dynamicThinking(
+	info: ClaudeSupportedModel,
+	fallback: PiAiModel | undefined,
+): ProviderModelConfig["thinking"] | undefined {
+	const supportedEffortLevels = info.supportedEffortLevels ?? [];
+	const efforts = supportedEffortLevels.filter(isClaudeEffort);
+	const hasMaxEffort = supportedEffortLevels.includes("max");
+	if (hasMaxEffort && !efforts.includes("xhigh")) efforts.push("xhigh");
+	const supportsThinking =
+		info.supportsEffort === true || efforts.length > 0 || info.supportsAdaptiveThinking === true;
+	if (!supportsThinking) return info.supportsEffort === undefined && fallback?.thinking ? fallback.thinking : undefined;
+	const normalizedEfforts: ClaudeEffort[] = efforts.length > 0 ? efforts : ["low", "medium", "high"];
+	const effortMap = hasMaxEffort
+		? { ...fallback?.thinking?.effortMap, xhigh: "max" }
+		: fallback?.thinking?.effortMap;
+	return {
+		mode: info.supportsAdaptiveThinking ? "anthropic-adaptive" : "anthropic-budget-effort",
+		efforts: normalizedEfforts as NonNullable<ProviderModelConfig["thinking"]>["efforts"],
+		...(effortMap ? {
+			effortMap: effortMap as NonNullable<ProviderModelConfig["thinking"]>["effortMap"],
+		} : {}),
+		...(fallback?.thinking?.supportsDisplay ? { supportsDisplay: true } : {}),
+	};
+}
+
+/**
+ * Project the SDK's supportedModels() response into OMP provider model
+ * definitions. SDK order is preserved and duplicate values are dropped on
+ * first occurrence. The id is never normalized: aliases and [1m] values are
+ * the exact strings Claude Code must receive.
+ */
+export function projectSupportedModels(
+	supportedModels: readonly ClaudeSupportedModel[],
+	piAiModels: readonly PiAiModel[] = [],
+): ClaudeProviderModel[] {
+	const seen = new Set<string>();
+	const result: ClaudeProviderModel[] = [];
+	for (const info of supportedModels) {
+		if (!info || typeof info.value !== "string" || !info.value || seen.has(info.value)) continue;
+		seen.add(info.value);
+		const reportedEffortLevels = info.supportedEffortLevels ?? [];
+		const metadata = findPiAiMetadata(info, piAiModels);
+		const reasoning = info.supportsAdaptiveThinking === true
+			? true
+			: info.supportsEffort !== undefined
+				? info.supportsEffort
+				: reportedEffortLevels.length > 0
+					? true
+					: Boolean(metadata?.reasoning);
+		const contextWindow = /\[1m\]$/i.test(info.value)
+			? 1_000_000
+			: metadata?.contextWindow == null
+				? DEFAULT_DYNAMIC_CONTEXT_WINDOW
+				: Math.min(metadata.contextWindow, 200_000);
+		const model: ClaudeProviderModel = {
+			id: info.value,
+			name: info.displayName || info.value,
+			reasoning,
+			input: metadata?.input ?? ["text"],
+			cost: metadata?.cost ?? ZERO_COST,
+			contextWindow,
+			maxTokens: metadata?.maxTokens ?? DEFAULT_DYNAMIC_MAX_TOKENS,
+			thinking: dynamicThinking(info, metadata),
+			thinkingLevelMap: metadata?.thinkingLevelMap,
+		};
+		result.push(model);
+	}
+	return result;
 }
 
 // User-selectable context-window policy (see provider.contextWindow in config).
@@ -151,7 +334,16 @@ export function parseVariantId(id: string): { baseId: string; forced?: "1m" | "2
 	return { baseId: id };
 }
 
+let dynamicRuntimeCatalogActive = false;
+
+/** Mark whether provider entries came from SDK discovery rather than static config. */
+export function setDynamicRuntimeCatalogActive(active: boolean): void {
+	dynamicRuntimeCatalogActive = active;
+}
+
 export function claudeCodeModelId(model: { id: string }, settings: LongContextSettings): string {
+	if (dynamicRuntimeCatalogActive) return model.id;
+	if (/\[1m\]$/i.test(model.id)) return model.id;
 	const { baseId, forced } = parseVariantId(model.id);
 	const runtimeModel = forced === "1m"
 		? resolveForcedOneMRuntimeModel(baseId)
@@ -190,6 +382,10 @@ export function buildVariantModels<T extends { id: string; name: string; context
 ): T[] {
 	const result: T[] = [];
 	for (const m of models) {
+		if (/\[1m\]$/i.test(m.id)) {
+			result.push({ ...m, contextWindow: ONE_M_CONTEXT, name: variantName(m.name, ONE_M_CONTEXT) });
+			continue;
+		}
 		// Unknown model (not in the model tables): keep one default-path entry.
 		// Done before the forced-resolver probes below, which log "hiding it" on
 		// unknown ids — misleading noise for a model we actually keep.

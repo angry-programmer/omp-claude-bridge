@@ -13,7 +13,8 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { buildVariantModels, buildModels, claudeCodeModelId, type ContextWindowMode, type LongContextSettings, resolveModel as _resolveModel } from "./models.js";
+import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, setDynamicRuntimeCatalogActive, type ClaudeProviderModel, type ContextWindowMode, type LongContextSettings, resolveModel as _resolveModel } from "./models.js";
+import { discoverClaudeModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
@@ -126,14 +127,20 @@ const ACTIVE_STREAM_SIMPLE_KEY = Symbol.for("claude-bridge:activeStreamSimple");
 const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
 	read: "read", write: "write", edit: "edit", bash: "bash",
 };
-
-// MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
-const MODELS = buildModels(getModels("anthropic"));
+// Runtime model ids are held only long enough for AskClaude exact matching;
+// the OMP model cache remains the source of truth across refreshes.
+let configuredModels: ClaudeProviderModel[] = [];
+let dynamicModels: Array<{ id: string }> = [];
+let usingStaticModelConfig = false;
 let providerSettings: NonNullable<Config["provider"]> = {};
 let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false, contextWindow: "auto" };
 
 function resolveModel(input: string) {
-	return _resolveModel(MODELS, input);
+	const lower = input.toLowerCase();
+	if (!usingStaticModelConfig) {
+		return dynamicModels.find((model) => model.id.toLowerCase() === lower);
+	}
+	return _resolveModel(configuredModels, input);
 }
 
 // --- Error handling ---
@@ -1628,8 +1635,13 @@ export default function (pi: ExtensionAPI) {
 		longContextExtraUsage: providerSettings.longContextExtraUsage ?? false,
 		contextWindow,
 	};
-	const registeredModels = buildVariantModels(MODELS, longContextSettings);
 
+	const explicitModelIds = (providerSettings.models ?? []).filter((id) => typeof id === "string" && id.length > 0);
+	usingStaticModelConfig = explicitModelIds.length > 0;
+	setDynamicRuntimeCatalogActive(!usingStaticModelConfig);
+	configuredModels = usingStaticModelConfig
+		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic")), longContextSettings)
+		: [];
 	// Reset shared session on pi session lifecycle events
 	const clearSession = (event: string) => {
 		debug(`${event}: clearing session ${sharedSession?.sessionId?.slice(0, 8) ?? "none"}`);
@@ -1703,8 +1715,19 @@ export default function (pi: ExtensionAPI) {
 	// (e.g., when spawning subagents). The shared ModelRegistry would otherwise
 	// overwrite the parent's streamSimple, breaking tool result delivery.
 	// See ACTIVE_STREAM_SIMPLE_KEY for the full mechanism.
-
 	const g = globalThis as Record<symbol, any>;
+
+	const fetchDynamicModels = async (_apiKey: string | undefined) => {
+		const discovered = await discoverClaudeModels({
+			cwd: process.cwd(),
+			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
+			settingSources: providerSettings.settingSources,
+		});
+		const projected = projectSupportedModels(discovered, getModels("anthropic"));
+		dynamicModels = projected.map((model) => ({ id: model.id }));
+		return projected;
+	};
+
 	if (!g[ACTIVE_STREAM_SIMPLE_KEY]) {
 		// First instance: store our streamSimple and register.
 		g[ACTIVE_STREAM_SIMPLE_KEY] = streamClaudeAgentSdk;
@@ -1712,7 +1735,7 @@ export default function (pi: ExtensionAPI) {
 			baseUrl: "claude-bridge",
 			apiKey: "not-used",
 			api: "claude-bridge",
-			models: registeredModels,
+			...(usingStaticModelConfig ? { models: configuredModels } : { fetchDynamicModels }),
 			// Cast: pi-ai AssistantMessageEventStream diamond dep between pi-coding-agent and pi-agent-core
 			streamSimple: streamClaudeAgentSdk as any,
 		});

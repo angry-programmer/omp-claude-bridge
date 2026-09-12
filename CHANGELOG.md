@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Runtime model discovery through the official Claude Agent SDK
+  `supportedModels()` catalog. SDK values (including aliases and exact
+  `[1m]` ids) are projected in runtime order and routed unchanged; future SDK
+  models appear without editing a source allowlist.
+- `provider.models` as an explicit static override for installations that
+  need the legacy context-window variants.
+
+### Changed
+- Dynamic catalogs use OMP's `fetchDynamicModels` SQLite cache (24-hour TTL).
+  Discovery failures now throw so OMP can retain the last good catalog instead
+  of replacing it with an invented fallback.
+
 ## [0.8.1] - 2026-07-07
 
 ### Fixed

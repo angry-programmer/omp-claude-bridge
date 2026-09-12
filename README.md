@@ -85,12 +85,18 @@ To delegate from another provider instead, just ask: *"Ask Claude to review this
 
 ## Context window controls
 
-Claude Code serves different context windows depending on the exact model id it receives (e.g. bare `claude-fable-5` serves 200K, while `claude-fable-5[1m]` serves 1M). `omp-claude-bridge` exposes both as **separate entries in the `/model` picker**, so you choose the window on demand:
+When `provider.models` is a non-empty explicit list, Claude Code serves
+different context windows depending on the exact model id it receives (e.g.
+bare `claude-fable-5` serves 200K, while `claude-fable-5[1m]` serves 1M).
+That static fallback exposes supported windows as separate `/model` entries:
 
 - `claude-bridge/claude-opus-4-8` → **Opus 4.8 (1M)**
 - `claude-bridge/claude-opus-4-8-200k` → **Opus 4.8 (200K)**
 
 Switching window is just picking the other entry — no config edit, no reload. Every model appears once per window it supports, the `(1M)` / `(200K)` label is always shown, and each entry reports its true window so OMP's status bar and auto-compaction threshold stay accurate.
+With runtime SDK discovery, entries are never invented or expanded: each SDK
+`value` is registered exactly once, and only a value that includes `[1m]`
+receives 1M metadata.
 
 ### Default window
 
@@ -135,23 +141,34 @@ The suffixed alternate exists only for the window that isn't the default — e.g
 
 ## Models
 
-Pick any of these from `/model` — each entry shows a `(1M)` or `(200K)` label. The exact ids below assume the default `contextWindow: "auto"`; which id is unsuffixed vs `-1m` / `-200k` follows your configured [default window](#default-window).
+The `/model` picker is populated from Claude Code's official Agent SDK
+`supportedModels()` catalog at runtime. The SDK's `value` is kept verbatim as
+the picker id and as the id sent to Claude Code, so aliases such as `default`,
+`sonnet`, `opus`, and `haiku` do not get rewritten to a stale hardcoded
+version. Display names and effort support come from the SDK; cost, input,
+context, and output metadata are enriched from the best matching pi-ai entry.
+Duplicate SDK values are ignored after their first occurrence.
 
-| Picker id (auto) | Window |
-| --------- | ------ |
-| `claude-bridge/claude-fable-5` | 200K |
-| `claude-bridge/claude-fable-5-1m` | 1M |
-| `claude-bridge/claude-opus-4-8` | 1M |
-| `claude-bridge/claude-opus-4-8-200k` | 200K |
-| `claude-bridge/claude-opus-4-7` | 1M |
-| `claude-bridge/claude-opus-4-6` | 200K (1M on Max / Extra Usage) |
-| `claude-bridge/claude-opus-4-6-1m` | 1M |
-| `claude-bridge/claude-sonnet-5` | 1M (supports `xhigh`) |
-| `claude-bridge/claude-sonnet-5-200k` | 200K |
-| `claude-bridge/claude-sonnet-4-6` | 200K (supports `xhigh`) |
-| `claude-bridge/claude-sonnet-4-6-1m` | 1M |
-| `claude-bridge/claude-haiku-4-5` | 200K (cheapest) |
+For example, a current Claude Code catalog may expose `default`, `sonnet`,
+`claude-fable-5-1[1m]`, `opus`, and `haiku`; a future SDK model appears
+automatically after OMP refreshes its dynamic catalog. `[1m]` values retain
+their exact id and 1M context metadata.
 
+If you need a deliberately static catalog, set `provider.models` to a
+non-empty list of exact Claude Code ids. That explicit list bypasses discovery
+and retains the legacy context-window variant behavior:
+
+```json
+{
+  "provider": {
+    "models": ["claude-opus-4-8", "claude-sonnet-5"]
+  }
+}
+```
+
+Discovery failures are surfaced to OMP so its last good dynamic catalog can be
+preserved. On a cold cache, fix the Claude Code executable/configuration or use
+an explicit static list; the bridge never invents a selectable runtime.
 Bash commands issued by Claude Code get a 120-second default timeout (matching Claude Code's default), since OMP's bash has no timeout by default.
 
 ## AskClaude tool
@@ -172,7 +189,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 | --------- | ------ | ----------- |
 | `prompt` | string | The question or task for Claude Code. |
 | `mode` | `read` (default), `none`, `full` | `read` = read files + web; `full` = read/write/bash. Lock `full` out with `allowFullMode: false`. |
-| `model` | `opus` (default), `sonnet`, `haiku`, or a full id | Which Claude model handles the delegation. |
+| `model` | `opus` (default), `sonnet`, `haiku`, or a full id | Dynamic SDK aliases and exact values are passed directly to Claude Code; an alias not in the current catalog is still sent unchanged. |
 | `thinking` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` | Effort level. |
 | `isolated` | boolean (default `false`) | When `true`, Claude gets a clean session with no conversation history. |
 
@@ -213,17 +230,18 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 
 | Key | Default | Description |
 | --- | ------- | ----------- |
-| `contextWindow` | `"auto"` | `"auto"`, `"1m"`, or `"200k"`. See [Context window controls](#context-window-controls). |
-| `plan` | `"pro"` | Set to `"max"` to enable Opus 4.6 at 1M in `auto`. |
-| `longContextExtraUsage` | `false` | Opt into metered 1M usage (enables Sonnet 4.6 1M everywhere, Opus 4.6 1M on Pro). |
+| `models` | — | Non-empty exact-id list that opts out of runtime discovery and uses the static fallback path. |
+| `contextWindow` | `"auto"` | `"auto"`, `"1m"`, or `"200k"` for the static fallback path. Dynamic entries retain only windows evidenced by SDK values. |
+| `plan` | `"pro"` | Set to `"max"` to enable Opus 4.6 at 1M in the static fallback path. |
+| `longContextExtraUsage` | `false` | Opt into metered 1M usage for static legacy model ids. |
 | `appendSystemPrompt` | `true` | Append OMP's AGENTS.md and skills. |
-| `settingSources` | — | Claude Code filesystem settings to load; only applied when `appendSystemPrompt: false`. |
+| `settingSources` | — | Claude Code filesystem settings to load; also used during SDK model discovery. |
 | `strictMcpConfig` | `true` | Block MCP servers from `~/.claude.json` / `.mcp.json`. Cloud MCP is always blocked. |
-| `pathToClaudeCodeExecutable` | — | Path to the `claude` binary, if the bundled one can't run on your OS/filesystem. |
+| `pathToClaudeCodeExecutable` | — | Path to the `claude` binary, used for both discovery and requests. |
 
 ## How it works
 
-OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. Model routing lives in [`src/models.ts`](src/models.ts), which is deliberately free of runtime imports so the context-window policy stays unit-testable in isolation. On registration, the extension projects the pi-ai model list, applies the selected context-window policy, and registers the resulting models with OMP.
+OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. The bridge projects SDK values without renaming them, and only the explicit static configuration uses the legacy context-window expansion in [`src/models.ts`](src/models.ts).
 
 ## Debugging
 

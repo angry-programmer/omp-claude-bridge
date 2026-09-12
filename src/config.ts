@@ -27,6 +27,12 @@ export interface Config {
 		settingSources?: SettingSource[];
 		strictMcpConfig?: boolean;
 		pathToClaudeCodeExecutable?: string;
+		/**
+		 * Explicit model ids opt out of SDK discovery and stay on the static
+		 * metadata/context-window path. An omitted or empty list enables runtime
+		 * discovery through Claude Agent SDK supportedModels().
+		 */
+		models?: string[];
 		// Subscription plan tier. Setting to "max" enables Opus 4.6 at 1M context
 		plan?: "pro" | "max";
 		// Set to true to opt into metered 1M context usage ("extra usage" in
