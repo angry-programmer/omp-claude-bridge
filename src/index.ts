@@ -5,7 +5,7 @@ import { keyHint } from "@oh-my-pi/pi-coding-agent/modes/components/keybinding-h
 import { buildSessionContext } from "@oh-my-pi/pi-coding-agent/session/session-context";
 import type { CompactionEntry } from "@oh-my-pi/pi-coding-agent/session/session-entries";
 import { compact } from "@oh-my-pi/pi-agent-core/compaction";
-import { createSdkMcpServer, query, type EffortLevel, type SDKMessage, type SDKUserMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, type SDKMessage, type SDKUserMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
 import { Text } from "@oh-my-pi/pi-tui";
 import { createSession, deleteSession, repairToolPairing } from "cc-session-io";
@@ -13,7 +13,7 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, setDynamicRuntimeCatalogActive, type ClaudeProviderModel, type ContextWindowMode, type LongContextSettings, resolveModel as _resolveModel } from "./models.js";
+import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type LongContextSettings, resolveModel as _resolveModel } from "./models.js";
 import { discoverClaudeModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
@@ -791,12 +791,9 @@ function logServedContextWindow(label: string, message: SDKMessage, model: Model
 	}
 }
 
-// --- Effort level mapping ---
-// OMP reasoning levels → CC SDK effort levels
-
-const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
-	minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "max",
-};
+// --- Effort level routing ---
+// Claude Code receives the same name OMP selected. The shared router rejects
+// unsupported values instead of silently downgrading them.
 
 // --- Provider helpers: misc ---
 
@@ -1242,13 +1239,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 	const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
-	// Prefer the model's own thinkingLevelMap when present (pi-ai 0.72+ ships
-	// per-model overrides — e.g. opus-4-7 wants xhigh→xhigh, not xhigh→max).
-	// Fall back to our generic table for older pi-ai or unmapped levels.
-	const effort = options?.reasoning
-		? ((model as any).thinkingLevelMap?.[options.reasoning] as EffortLevel | undefined)
-			?? REASONING_TO_EFFORT[options.reasoning]
-		: undefined;
+	const effort = routeClaudeEffort(options?.reasoning);
 
 	// cliModel is the actual id sent to Claude Code (may carry [1m]); model.id is the
 	// pi-registered id. Log cliModel so debug lines reflect what CC actually received.
@@ -1455,7 +1446,7 @@ async function promptAndWait(
 		appendSkills?: boolean;
 		onStreamUpdate?: (responseText: string) => void;
 		model?: string;
-		thinking?: string;
+		thinking?: "off" | ClaudeEffort;
 		isolated?: boolean;
 		context?: Context["messages"];
 	},
@@ -1491,9 +1482,7 @@ async function promptAndWait(
 	const skillsBlock = options?.appendSkills !== false && options?.systemPrompt
 		? extractSkillsBlock(options.systemPrompt) : undefined;
 
-	// Effort
-	const effort = options?.thinking && options.thinking !== "off"
-		? REASONING_TO_EFFORT[options.thinking] : undefined;
+	const effort = options?.thinking === "off" ? undefined : routeClaudeEffort(options?.thinking);
 
 	const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -1760,7 +1749,7 @@ export default function (pi: ExtensionAPI) {
 		prompt: string;
 		mode?: "full" | "read" | "none";
 		model?: string;
-		thinking?: string;
+		thinking?: "off" | ClaudeEffort;
 		isolated?: boolean;
 	};
 
@@ -1776,7 +1765,10 @@ export default function (pi: ExtensionAPI) {
 		const parsed: AskClaudeToolParams = { prompt: value.prompt };
 		if ("mode" in value && (value.mode === "full" || value.mode === "read" || value.mode === "none")) parsed.mode = value.mode;
 		if ("model" in value && typeof value.model === "string") parsed.model = value.model;
-		if ("thinking" in value && typeof value.thinking === "string") parsed.thinking = value.thinking;
+		if ("thinking" in value && typeof value.thinking === "string") {
+			if (value.thinking === "off") parsed.thinking = "off";
+			else parsed.thinking = routeClaudeEffort(value.thinking);
+		}
 		if ("isolated" in value && typeof value.isolated === "boolean") parsed.isolated = value.isolated;
 		return parsed;
 	};
@@ -1789,7 +1781,7 @@ export default function (pi: ExtensionAPI) {
 			prompt: Type.String({ description: "The question or task for Claude Code. By default Claude sees the full conversation history. Don't research up front, let Claude explore." }),
 			mode: Type.Optional(StringEnum(modeValues, { description: modeDesc })),
 			model: Type.Optional(Type.String({ description: 'Claude model (e.g. "opus", "sonnet", "haiku", or full ID). Defaults to "opus".' })),
-			thinking: Type.Optional(StringEnum(["off", "minimal", "low", "medium", "high", "xhigh"] as const, { description: "Thinking effort level. Omit to use Claude Code's default." })),
+			thinking: Type.Optional(StringEnum(["off", ...CLAUDE_EFFORT_LEVELS] as const, { description: "Thinking effort level. Omit to use Claude Code's default. Supported names are low, medium, high, xhigh, and max." })),
 			isolated: Type.Optional(Type.Boolean({ description: "When true, Claude sees only this prompt (clean session). When false (default), Claude sees the full conversation history." })),
 		});
 		pi.registerTool<typeof askClaudeParams>({

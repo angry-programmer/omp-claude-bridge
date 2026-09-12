@@ -141,18 +141,22 @@ The suffixed alternate exists only for the window that isn't the default — e.g
 
 ## Models
 
-The `/model` picker is populated from Claude Code's official Agent SDK
-`supportedModels()` catalog at runtime. The SDK's `value` is kept verbatim as
-the picker id and as the id sent to Claude Code, so aliases such as `default`,
-`sonnet`, `opus`, and `haiku` do not get rewritten to a stale hardcoded
-version. Display names and effort support come from the SDK; cost, input,
-context, and output metadata are enriched from the best matching pi-ai entry.
-Duplicate SDK values are ignored after their first occurrence.
+The `/model` picker combines two sources:
 
-For example, a current Claude Code catalog may expose `default`, `sonnet`,
-`claude-fable-5-1[1m]`, `opus`, and `haiku`; a future SDK model appears
-automatically after OMP refreshes its dynamic catalog. `[1m]` values retain
-their exact id and 1M context metadata.
+- Retained versioned selectors such as `claude-opus-4-8`,
+  `claude-sonnet-4-6`, and `claude-fable-5`. These route to that exact model
+  version.
+- Claude Code's official Agent SDK `supportedModels()` catalog. Family aliases
+  such as `opus`, `sonnet`, and `fable` route unchanged, so Claude Code—not the
+  bridge—selects the latest version. An alias is shown only when the SDK
+  reports it; the bridge does not invent a `fable` alias.
+
+SDK display names are preserved. The model picker exposes only SDK effort names
+that OMP represents natively (`low` through `xhigh`) and never translates them;
+`max` remains separately available through AskClaude because OMP currently
+treats its own `max` CLI spelling as an alias for `xhigh`. Cost, input, context,
+and output metadata are enriched from the best matching pi-ai entry. Duplicate
+exact IDs are ignored, and explicit `[1m]` IDs retain 1M context metadata.
 
 If you need a deliberately static catalog, set `provider.models` to a
 non-empty list of exact Claude Code ids. That explicit list bypasses discovery
@@ -190,7 +194,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 | `prompt` | string | The question or task for Claude Code. |
 | `mode` | `read` (default), `none`, `full` | `read` = read files + web; `full` = read/write/bash. Lock `full` out with `allowFullMode: false`. |
 | `model` | `opus` (default), `sonnet`, `haiku`, or a full id | Dynamic SDK aliases and exact values are passed directly to Claude Code; an alias not in the current catalog is still sent unchanged. |
-| `thinking` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` | Effort level. |
+| `thinking` | `off`, `low`, `medium`, `high`, `xhigh`, `max` | Exact Claude Code effort name. Levels are never translated by position or remapped (`xhigh` stays `xhigh`; `max` stays `max`). |
 | `isolated` | boolean (default `false`) | When `true`, Claude gets a clean session with no conversation history. |
 
 ## Configuration reference
