@@ -8,12 +8,12 @@ sizes are welcome — bug reports, docs fixes, and features alike.
 ```bash
 git clone https://github.com/DevVig/omp-claude-bridge.git
 cd omp-claude-bridge
-bun install        # or: npm install
+bun install
 ```
 
 Requirements:
-- Node.js >= 20
-- [Bun](https://bun.sh) (recommended) or npm
+- [Bun](https://bun.sh) (required for install and contributor checks)
+- Node.js >= 20 (required by the package and Claude Code tooling)
 - An Oh My Pi install for end-to-end testing ([omp.sh](https://omp.sh))
 
 ## Developing against a live Oh My Pi
@@ -35,20 +35,21 @@ CLAUDE_BRIDGE_DEBUG=1 pi --list-models claude-bridge
 
 ```bash
 bun run typecheck   # tsc --noEmit
-bun run test        # node --test unit suite
+bun run test        # Bun test runner
 ```
 
-Please make sure both pass. CI runs the same two checks on every pull request.
+Please make sure both pass. Bun is the required runner for local checks and CI.
 
 ## Coding guidelines
 
 - TypeScript, ESM, tabs for indentation (match the surrounding files).
 - Keep model routing changes in `src/models.ts`. It has **no runtime imports**,
   so it stays unit-testable in isolation — add a case to
-  `tests/unit-context-window.mjs` when you touch context routing.
-- Context-window behavior is derived from **measured** Claude Agent SDK output,
-  not advertised metadata. If you change a model mapping, note how you verified
-  the served window (the `result: served contextWindow=...` debug line).
+  `tests/unit-context-window.test.mjs` when you touch context routing.
+- Context-window behavior follows canonical OMP model metadata and the bridge's
+  static defaults, not a locally measured policy. If you change a model mapping,
+  explain the metadata/default rationale. Served-window debug lines
+  (`result: served contextWindow=...`) remain entitlement diagnostics.
 
 ## Reporting bugs
 

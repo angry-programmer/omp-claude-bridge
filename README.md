@@ -47,7 +47,7 @@ Authentication and billing run through Claude Code and your Anthropic subscripti
 
 - **Claude Code as a provider** — pick Opus / Sonnet / Haiku / Fable from `/model`; tool calls render in OMP's TUI like any native provider.
 - **AskClaude delegation tool** — from any other provider, hand a task or question to Claude Code (read-only, no-tools, or full read/write/bash), optionally in an isolated session.
-- **Switchable context window** — force **1M** or **200K** globally, or leave it on measured per-model defaults. This is the headline addition in this fork.
+- **Switchable context window** — force **1M** or **200K** globally, or use the canonical OMP metadata/static defaults. This is the headline addition in this fork.
 - **Session resume & persistence** — conversations survive across turns and reconnects.
 - **Skills + AGENTS.md forwarding** — your OMP skills and context files are passed into Claude Code's system prompt.
 - **Thinking support** — effort levels map through to Claude Code, including `xhigh` on Sonnet models.
@@ -136,7 +136,7 @@ Both windows stay in the picker regardless of this setting (wherever a runtime e
 
 The suffixed alternate exists only for the window that isn't the default — e.g. under `auto` you get `claude-opus-4-8` (1M) + `claude-opus-4-8-200k`, and under `"200k"` you get `claude-opus-4-8` (200K) + `claude-opus-4-8-1m`.
 
-> Forcing 1M is a *request*: some models may still be **served** 200K by your subscription entitlement. Set `CLAUDE_BRIDGE_DEBUG=1` to log the served window (see [Debugging](#debugging)).
+> Forcing 1M is a *request*: some models may still be **served** 200K by your subscription entitlement. Set `CLAUDE_BRIDGE_DEBUG=1` to log the served window as an entitlement diagnostic (see [Debugging](#debugging)).
 
 > An invalid `contextWindow` value logs a warning and falls back to `"auto"`, so a typo never breaks startup.
 
@@ -261,7 +261,7 @@ cd omp-claude-bridge
 bun install
 
 bun run typecheck   # tsc --noEmit
-bun run test        # node --test unit suite
+bun run test        # Bun test runner
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow. CI runs typecheck and tests on every push and PR.
