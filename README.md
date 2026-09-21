@@ -85,18 +85,22 @@ To delegate from another provider instead, just ask: *"Ask Claude to review this
 
 ## Context window controls
 
-When `provider.models` is a non-empty explicit list, Claude Code serves
-different context windows depending on the exact model id it receives (e.g.
-bare `claude-fable-5` serves 200K, while `claude-fable-5[1m]` serves 1M).
-That static fallback exposes supported windows as separate `/model` entries:
+When `provider.models` is a non-empty explicit list, the bridge's static model
+table serves different context windows through exact model selectors (for
+example, `claude-opus-4-8` serves 1M while the `claude-opus-4-8-200k` picker
+entry serves 200K). That static fallback exposes supported windows as separate
+`/model` entries:
 
 - `claude-bridge/claude-opus-4-8` → **Opus 4.8 (1M)**
 - `claude-bridge/claude-opus-4-8-200k` → **Opus 4.8 (200K)**
 
-Switching window is just picking the other entry — no config edit, no reload. Every model appears once per window it supports, the `(1M)` / `(200K)` label is always shown, and each entry reports its true window so OMP's status bar and auto-compaction threshold stay accurate.
-With runtime SDK discovery, entries are never invented or expanded: each SDK
-`value` is registered exactly once, and only a value that includes `[1m]`
-receives 1M metadata.
+Switching window is just picking the other entry — no config edit, no reload.
+Every model appears once per window it supports, the `(1M)` / `(200K)` label is
+always shown, and each entry reports its true window so OMP's status bar and
+auto-compaction threshold stay accurate. With runtime SDK discovery, entries
+remain exact SDK `value` selectors: known values inherit the best matched OMP
+metadata, while unknown values use conservative 128K metadata and explicit
+`[1m]` values remain 1M.
 
 ### Default window
 
@@ -112,7 +116,7 @@ The **unsuffixed** id (e.g. `claude-opus-4-8`) maps to a default window; the oth
 
 | Mode | Default (unsuffixed) window |
 | ---- | -------- |
-| `"auto"` *(default)* | Per-model measured default. Respects `plan` and `longContextExtraUsage`. |
+| `"auto"` *(default)* | Canonical static policy: current Fable, Opus, and Sonnet entries default to 1M; Haiku 4.5 defaults to 200K. |
 | `"1m"` | 1M where the model has a 1M runtime, else its only window. |
 | `"200k"` | 200K where the model has a 200K runtime, else its only window. |
 
@@ -124,14 +128,11 @@ Both windows stay in the picker regardless of this setting (wherever a runtime e
 | ----- | :--------: | :------: | :------------: |
 | `claude-opus-4-8` | ✓ | ✓ | 1M |
 | `claude-opus-4-7` | — | ✓ | 1M |
-| `claude-opus-4-6` | ✓ | ✓ | 200K¹ |
-| `claude-fable-5` | ✓ | ✓ | 200K |
+| `claude-opus-4-6` | ✓ | ✓ | 1M |
+| `claude-fable-5` | ✓ | ✓ | 1M |
 | `claude-sonnet-5` | ✓ | ✓ | 1M |
-| `claude-sonnet-4-6` | ✓ | ✓ | 200K² |
+| `claude-sonnet-4-6` | ✓ | ✓ | 1M |
 | `claude-haiku-4-5` | ✓ | — | 200K |
-
-¹ Opus 4.6's `auto` default is 1M when `plan: "max"` or `longContextExtraUsage: true`.
-² Sonnet 4.6's `auto` default is 1M when `longContextExtraUsage: true`.
 
 The suffixed alternate exists only for the window that isn't the default — e.g. under `auto` you get `claude-opus-4-8` (1M) + `claude-opus-4-8-200k`, and under `"200k"` you get `claude-opus-4-8` (200K) + `claude-opus-4-8-1m`.
 
@@ -210,8 +211,6 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
   },
   "provider": {
     "contextWindow": "auto",
-    "plan": "pro",
-    "longContextExtraUsage": false,
     "strictMcpConfig": true
   }
 }
@@ -235,9 +234,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 | Key | Default | Description |
 | --- | ------- | ----------- |
 | `models` | — | Non-empty exact-id list that opts out of runtime discovery and uses the static fallback path. |
-| `contextWindow` | `"auto"` | `"auto"`, `"1m"`, or `"200k"` for the static fallback path. Dynamic entries retain only windows evidenced by SDK values. |
-| `plan` | `"pro"` | Set to `"max"` to enable Opus 4.6 at 1M in the static fallback path. |
-| `longContextExtraUsage` | `false` | Opt into metered 1M usage for static legacy model ids. |
+| `contextWindow` | `"auto"` | `"auto"`, `"1m"`, or `"200k"` for the static fallback path. Dynamic entries inherit matched OMP metadata, use 128K when unmatched, and keep explicit `[1m]` selectors at 1M. |
 | `appendSystemPrompt` | `true` | Append OMP's AGENTS.md and skills. |
 | `settingSources` | — | Claude Code filesystem settings to load; also used during SDK model discovery. |
 | `strictMcpConfig` | `true` | Block MCP servers from `~/.claude.json` / `.mcp.json`. Cloud MCP is always blocked. |
@@ -245,7 +242,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 
 ## How it works
 
-OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. The bridge projects SDK values without renaming them, and only the explicit static configuration uses the legacy context-window expansion in [`src/models.ts`](src/models.ts).
+OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. The bridge projects SDK values without renaming them and inherits matched OMP context metadata; explicit static configuration uses the canonical context-window table in [`src/models.ts`](src/models.ts).
 
 ## Debugging
 

@@ -33,12 +33,6 @@ export interface Config {
 		 * discovery through Claude Agent SDK supportedModels().
 		 */
 		models?: string[];
-		// Subscription plan tier. Setting to "max" enables Opus 4.6 at 1M context
-		plan?: "pro" | "max";
-		// Set to true to opt into metered 1M context usage ("extra usage" in
-		// Anthropic billing). Enables Sonnet 4.6 [1m] on every plan and Opus 4.6
-		// [1m] on Pro.
-		longContextExtraUsage?: boolean;
 		// Force the Claude Code context window for every model:
 		//   "auto" (default) - per-model policy, "1m" - force 1M, "200k" - force 200K.
 		contextWindow?: ContextWindowMode;

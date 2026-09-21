@@ -179,9 +179,7 @@ export function projectSupportedModels(
 		const metadata = findPiAiMetadata(info, piAiModels);
 		const contextWindow = /\[1m\]$/i.test(info.value)
 			? ONE_M_CONTEXT
-			: metadata?.contextWindow == null
-				? DEFAULT_DYNAMIC_CONTEXT_WINDOW
-				: Math.min(metadata.contextWindow, TWO_HUNDRED_K_CONTEXT);
+			: metadata?.contextWindow ?? DEFAULT_DYNAMIC_CONTEXT_WINDOW;
 		const reasoning = info.supportsAdaptiveThinking === true
 			? true
 			: info.supportsEffort !== undefined
@@ -203,14 +201,12 @@ export function projectSupportedModels(
 
 
 // User-selectable context-window policy (see provider.contextWindow in config).
-//   "auto"  - per-model default policy (measured SDK behavior).
+//   "auto"  - canonical per-model default policy.
 //   "1m"    - force 1M: only register 1M-capable models, request [1m] where needed.
 //   "200k"  - force 200K: only register 200K-capable models, request bare model ids.
 export type ContextWindowMode = "auto" | "1m" | "200k";
 
-export type LongContextSettings = {
-	plan: "pro" | "max";
-	longContextExtraUsage: boolean;
+export type ContextWindowSettings = {
 	contextWindow: ContextWindowMode;
 };
 
@@ -222,44 +218,34 @@ export type ClaudeCodeRuntimeModel = {
 const TWO_HUNDRED_K_CONTEXT = 200_000;
 const ONE_M_CONTEXT = 1_000_000;
 
-// Measured Claude Agent SDK subscription/OAuth behavior. Do not infer this from
-// pi-ai's advertised contextWindow: bare Opus 4.7 serves 1M, bare Opus 4.8 does
-// not, bare Fable 5 serves 200K while claude-fable-5[1m] serves 1M, and [1m]
-// entitlement differs by model. Returns null when a model has no runtime for the
-// requested forced window (that model is hidden from the picker in that mode).
-export function resolveClaudeCodeRuntimeModel(modelId: string, settings: LongContextSettings): ClaudeCodeRuntimeModel | null {
+// Static auto policy follows the canonical current-model defaults: Fable, Opus,
+// and Sonnet entries use 1M where available; Haiku 4.5 remains 200K. Forced
+// modes still expose each known runtime independently.
+export function resolveClaudeCodeRuntimeModel(modelId: string, settings: ContextWindowSettings): ClaudeCodeRuntimeModel | null {
 	switch (settings.contextWindow) {
 		case "1m":
 			return resolveForcedOneMRuntimeModel(modelId);
 		case "200k":
 			return resolveForcedTwoHundredKRuntimeModel(modelId);
 		case "auto":
-			return resolveAutoRuntimeModel(modelId, settings);
+			return resolveAutoRuntimeModel(modelId);
 	}
 }
 
-function resolveAutoRuntimeModel(modelId: string, settings: LongContextSettings): ClaudeCodeRuntimeModel {
+function resolveAutoRuntimeModel(modelId: string): ClaudeCodeRuntimeModel {
 	switch (modelId) {
 		case "claude-opus-4-8":
 			return { cliModelId: "claude-opus-4-8[1m]", contextWindow: ONE_M_CONTEXT };
 		case "claude-opus-4-7":
 			return { cliModelId: "claude-opus-4-7", contextWindow: ONE_M_CONTEXT };
-		case "claude-opus-4-6": {
-			const useOneM = settings.plan === "max" || settings.longContextExtraUsage;
-			return {
-				cliModelId: useOneM ? "claude-opus-4-6[1m]" : "claude-opus-4-6",
-				contextWindow: useOneM ? ONE_M_CONTEXT : TWO_HUNDRED_K_CONTEXT,
-			};
-		}
+		case "claude-opus-4-6":
+			return { cliModelId: "claude-opus-4-6[1m]", contextWindow: ONE_M_CONTEXT };
 		case "claude-fable-5":
-			return { cliModelId: "claude-fable-5", contextWindow: TWO_HUNDRED_K_CONTEXT };
+			return { cliModelId: "claude-fable-5[1m]", contextWindow: ONE_M_CONTEXT };
 		case "claude-sonnet-5":
 			return { cliModelId: "claude-sonnet-5[1m]", contextWindow: ONE_M_CONTEXT };
 		case "claude-sonnet-4-6":
-			return {
-				cliModelId: settings.longContextExtraUsage ? "claude-sonnet-4-6[1m]" : "claude-sonnet-4-6",
-				contextWindow: settings.longContextExtraUsage ? ONE_M_CONTEXT : TWO_HUNDRED_K_CONTEXT,
-			};
+			return { cliModelId: "claude-sonnet-4-6[1m]", contextWindow: ONE_M_CONTEXT };
 		case "claude-haiku-4-5":
 			return { cliModelId: "claude-haiku-4-5", contextWindow: TWO_HUNDRED_K_CONTEXT };
 		default:
@@ -329,7 +315,7 @@ export function setDynamicRuntimeCatalogActive(active: boolean): void {
 	dynamicRuntimeCatalogActive = active;
 }
 
-export function claudeCodeModelId(model: { id: string }, settings: LongContextSettings): string {
+export function claudeCodeModelId(model: { id: string }, settings: ContextWindowSettings): string {
 	if (dynamicRuntimeCatalogActive) return model.id;
 	if (/\[1m\]$/i.test(model.id)) return model.id;
 	const { baseId, forced } = parseVariantId(model.id);
@@ -366,7 +352,7 @@ function variantName(baseName: string, contextWindow: number): string {
 // regardless of provider.contextWindow, which only picks the default.
 export function buildVariantModels<T extends { id: string; name: string; contextWindow?: number | null }>(
 	models: T[],
-	settings: LongContextSettings,
+	settings: ContextWindowSettings,
 ): T[] {
 	const result: T[] = [];
 	for (const m of models) {

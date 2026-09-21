@@ -22,6 +22,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
 
+### Fixed
+- Dynamic SDK selectors now inherit matched OMP context metadata, including
+  canonical 1M values, without an unconditional 200K cap. Unknown selectors
+  remain conservative 128K, while explicit `[1m]` selectors stay at 1M.
+- Static `"auto"` routing now uses 1M for current Fable, Opus, and Sonnet
+  entries; Haiku 4.5 remains 200K. The explicit `"200k"` mode and `-200k`
+  picker variants remain available where supported.
+- Removed obsolete `provider.plan` and `provider.longContextExtraUsage`
+  settings; `provider.contextWindow` is the sole context-window policy control.
+
 ## [0.8.1] - 2026-07-07
 
 ### Fixed

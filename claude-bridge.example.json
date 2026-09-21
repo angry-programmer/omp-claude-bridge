@@ -6,8 +6,6 @@
   },
   "provider": {
     "contextWindow": "auto",
-    "plan": "pro",
-    "longContextExtraUsage": false,
     "strictMcpConfig": true
   }
 }

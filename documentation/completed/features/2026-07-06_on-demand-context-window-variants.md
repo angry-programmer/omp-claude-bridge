@@ -3,6 +3,12 @@
 **Status**: Complete
 **Agent Lead**: 🏗️/⚙️
 
+> **Superseded API note:** This historical record predates the canonical
+> context-window policy. Its earlier subscription-plan and extra-usage gates
+> are no longer supported; `provider.contextWindow` is the sole context-window
+> policy control. The dated planning notes below are retained for historical
+> context and do not define the current API.
+
 ## Plan
 
 ### Objective
@@ -15,27 +21,27 @@ Let the user choose a Claude model's context window **on demand** from OMP's nat
 
 ### Approach — variant scheme (per model, in MODEL_IDS_IN_ORDER)
 - **Available windows** = union of { 1M if `resolveForcedOneMRuntimeModel` ≠ null, 200K if `resolveForcedTwoHundredKRuntimeModel` ≠ null }. Independent of config, so both are pickable wherever a runtime exists.
-- **Default window** = the window `resolveClaudeCodeRuntimeModel(id, settings)` returns for the current config (auto respects `plan`/`longContextExtraUsage`; `1m`/`200k` force), falling back to the model's only available window when the preferred one has no runtime.
+- **Default window** = the window `resolveClaudeCodeRuntimeModel(id, settings)` returns for the current config (auto follows the canonical static model defaults; `1m`/`200k` force), falling back to the model's only available window when the preferred one has no runtime.
 - **Unsuffixed id** (e.g. `claude-opus-4-8`) = the default-window variant → preserves existing ids, roles, and the user's `config.yml`.
 - **Each other available window** gets a suffixed id: `${baseId}-1m` / `${baseId}-200k`.
 - **Display name** = `${baseName} (1M)` / `${baseName} (200K)` on every entry, for unambiguous labeling.
 - **`contextWindow`** on each entry = its true window (keeps status bar + auto-compaction accurate).
 
-Resulting picker (config = `auto`, Pro plan):
+Resulting picker (config = `auto`, canonical static policy):
 
 | Label | Picker id | CC cli id | Window |
 | --- | --- | --- | --- |
 | Opus 4.8 (1M) | `claude-opus-4-8` | `claude-opus-4-8[1m]` | 1M (default) |
 | Opus 4.8 (200K) | `claude-opus-4-8-200k` | `claude-opus-4-8` | 200K |
 | Opus 4.7 (1M) | `claude-opus-4-7` | `claude-opus-4-7` | 1M (only) |
-| Opus 4.6 (200K) | `claude-opus-4-6` | `claude-opus-4-6` | 200K (default) |
-| Opus 4.6 (1M) | `claude-opus-4-6-1m` | `claude-opus-4-6[1m]` | 1M |
-| Fable 5 (200K) | `claude-fable-5` | `claude-fable-5` | 200K (default) |
-| Fable 5 (1M) | `claude-fable-5-1m` | `claude-fable-5[1m]` | 1M |
+| Opus 4.6 (1M) | `claude-opus-4-6` | `claude-opus-4-6[1m]` | 1M (default) |
+| Opus 4.6 (200K) | `claude-opus-4-6-200k` | `claude-opus-4-6` | 200K |
+| Fable 5 (1M) | `claude-fable-5` | `claude-fable-5[1m]` | 1M (default) |
+| Fable 5 (200K) | `claude-fable-5-200k` | `claude-fable-5` | 200K |
 | Sonnet 5 (1M) | `claude-sonnet-5` | `claude-sonnet-5[1m]` | 1M (default) |
 | Sonnet 5 (200K) | `claude-sonnet-5-200k` | `claude-sonnet-5` | 200K |
-| Sonnet 4.6 (200K) | `claude-sonnet-4-6` | `claude-sonnet-4-6` | 200K (default) |
-| Sonnet 4.6 (1M) | `claude-sonnet-4-6-1m` | `claude-sonnet-4-6[1m]` | 1M |
+| Sonnet 4.6 (1M) | `claude-sonnet-4-6` | `claude-sonnet-4-6[1m]` | 1M (default) |
+| Sonnet 4.6 (200K) | `claude-sonnet-4-6-200k` | `claude-sonnet-4-6` | 200K |
 | Haiku 4.5 (200K) | `claude-haiku-4-5` | `claude-haiku-4-5` | 200K (only) |
 
 Unsuffixed ids all keep their current default-per-config behavior, so `modelRoles.default: claude-bridge/claude-opus-4-8` still resolves and still gets 1M.
@@ -46,9 +52,9 @@ Unsuffixed ids all keep their current default-per-config behavior, so `modelRole
    - Update `claudeCodeModelId(model, settings)`: if the id is suffixed, return the forced runtime's cli id (ignore global mode); else keep the existing default-per-config path.
    - Add `buildVariantModels(models, settings)` that expands each model into its window variants (default-first ordering, labels, `contextWindow`). Replace `applyLongContext`; remove it (no back-compat shim).
 2. **`src/index.ts`**
-   - Line ~1634: register `buildVariantModels(MODELS, longContextSettings)` instead of `applyLongContext(...)`.
+   - Line ~1634: register `buildVariantModels(MODELS, contextWindowSettings)` instead of `applyLongContext(...)`.
    - The three `claudeCodeModelId` call sites (≈366 compact, ≈1251 streaming, ≈1463 AskClaude) stay unchanged — variant parsing is internal.
-3. **`tests/unit-*.mjs`** — expansion (ids/windows/cli ids/labels), default selection per config (auto/1m/200k × plan/extraUsage), fallbacks (opus-4-7 under `200k`, haiku under `1m`), no duplicate windows, `claudeCodeModelId` round-trips for suffixed + unsuffixed ids.
+3. **`tests/unit-*.mjs`** — expansion (ids/windows/cli ids/labels), canonical auto defaults plus `200k` & `1m` config defaults, fallbacks (opus-4-7 under `200k`, haiku under `1m`), no duplicate windows, `claudeCodeModelId` round-trips for suffixed + unsuffixed ids.
 4. **`README.md`** — update "Context window controls" + "Models": variants in the picker, config sets the default, keep the per-model table; note the entitlement caveat.
 
 ### Tasks
@@ -76,8 +82,8 @@ Unsuffixed ids all keep their current default-per-config behavior, so `modelRole
 
 ### 2026-07-06 — Implemented (Option A), all checks green
 - **`src/models.ts`**: added exported `parseVariantId(id)` splitting `-1m`/`-200k` suffixes; made `claudeCodeModelId` variant-aware (suffixed id → forced runtime, ignores config; unsuffixed → config default). Replaced `applyLongContext` with `buildVariantModels` + a `variantName` helper — labels each entry `(1M)`/`(200K)`, sets the true `contextWindow`, orders default-first, offers both windows wherever a runtime exists, and makes the unsuffixed id the config default (falling back to the sole available window).
-- **`src/index.ts`**: import + registration now call `buildVariantModels(MODELS, longContextSettings)`. The three `claudeCodeModelId` call sites (compact ~366, streaming ~1251, AskClaude ~1463) unchanged — parsing is internal. `applyLongContext` fully removed (grep-confirmed no remaining refs).
-- **`tests/unit-context-window.mjs`**: rewritten for variants — 10 tests covering auto/Pro expansion (12 entries; ids/windows/labels), default-first ordering, auto/Max default flip (Opus 4.6), `200k` & `1m` config defaults + fallbacks (Opus 4.7, Haiku), the no-duplicate-window invariant, `parseVariantId`, and `claudeCodeModelId` round-trips (unsuffixed follows config, suffixed forces window, throws for impossible combos).
+- **`src/index.ts`**: import + registration now call `buildVariantModels(MODELS, contextWindowSettings)`. The three `claudeCodeModelId` call sites (compact ~366, streaming ~1251, AskClaude ~1463) unchanged — parsing is internal. `applyLongContext` fully removed (grep-confirmed no remaining refs).
+- **`tests/unit-context-window.mjs`**: rewritten for variants — 10 tests covering canonical auto expansion (12 entries; ids/windows/labels), default-first ordering, `200k` & `1m` config defaults + fallbacks (Opus 4.7, Haiku), the no-duplicate-window invariant, `parseVariantId`, and `claudeCodeModelId` round-trips (unsuffixed follows config, suffixed forces window, throws for impossible combos).
 - **`README.md`**: "Context window controls" + "Models" rewritten — variants in `/model`, `provider.contextWindow` now sets the *default* (no longer hides models), added "Windows offered per model" table + entitlement caveat, updated the picker-id table.
 - **Verification**: `bun run typecheck` clean; `bun run test` → 10/10 pass.
 - **Deployment**: the plugin is symlinked into OMP (`~/.omp/plugins/node_modules/omp-claude-bridge` → this repo), so the change goes live after a `/reload` in the OMP TUI.

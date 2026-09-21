@@ -10,7 +10,7 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type LongContextSettings, resolveModel as _resolveModel } from "./models.js";
+import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
 import { discoverClaudeModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
@@ -115,7 +115,7 @@ let configuredModels: ClaudeProviderModel[] = [];
 let dynamicModels: Array<{ id: string }> = [];
 let usingStaticModelConfig = false;
 let providerSettings: NonNullable<Config["provider"]> = {};
-let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false, contextWindow: "auto" };
+let contextWindowSettings: ContextWindowSettings = { contextWindow: "auto" };
 
 function resolveModel(input: string) {
 	const lower = input.toLowerCase();
@@ -353,7 +353,7 @@ async function runIsolatedSummary(
 		const promptText = extractIsolatedSummaryPrompt(context.messages);
 		const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
 		const claudeExecutable = loadConfig(cwd).provider?.pathToClaudeCodeExecutable;
-		const cliModel = claudeCodeModelId(model, longContextSettings);
+		const cliModel = claudeCodeModelId(model, contextWindowSettings);
 		debug(`compact summary: spawn model=${cliModel} registeredModel=${model.id} promptLen=${promptText.length}`);
 
 		sdkQuery = query({
@@ -1225,7 +1225,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 
 	// cliModel is the actual id sent to Claude Code (may carry [1m]); model.id is the
 	// pi-registered id. Log cliModel so debug lines reflect what CC actually received.
-	const cliModel = claudeCodeModelId(model, longContextSettings);
+	const cliModel = claudeCodeModelId(model, contextWindowSettings);
 	const extraArgs: Record<string, string | null> = { model: cliModel };
 	if (strictMcpConfigEnabled) extraArgs["strict-mcp-config"] = null;
 	// Opus 4.7 defaults thinking.display to "omitted" (empty thinking text in stream).
@@ -1437,7 +1437,7 @@ async function promptAndWait(
 	const requestedModel = options?.model ?? "opus";
 	const model = resolveModel(requestedModel);
 	const modelId = model?.id ?? requestedModel;
-	const cliModel = model ? claudeCodeModelId(model, longContextSettings) : modelId;
+	const cliModel = model ? claudeCodeModelId(model, contextWindowSettings) : modelId;
 
 	// Session resume for shared mode — reuse provider's session if it exists,
 	// otherwise create one from pi's context.
@@ -1601,9 +1601,7 @@ export default function (pi: ExtensionAPI) {
 	if (contextWindowSetting != null && contextWindow !== contextWindowSetting) {
 		console.error(`claude-bridge: invalid provider.contextWindow "${String(contextWindowSetting)}", using auto`);
 	}
-	longContextSettings = {
-		plan: providerSettings.plan ?? "pro",
-		longContextExtraUsage: providerSettings.longContextExtraUsage ?? false,
+	contextWindowSettings = {
 		contextWindow,
 	};
 
@@ -1611,7 +1609,7 @@ export default function (pi: ExtensionAPI) {
 	usingStaticModelConfig = explicitModelIds.length > 0;
 	setDynamicRuntimeCatalogActive(!usingStaticModelConfig);
 	configuredModels = usingStaticModelConfig
-		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic")), longContextSettings)
+		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic")), contextWindowSettings)
 		: [];
 	// Reset shared session on pi session lifecycle events
 	const clearSession = (event: string) => {

@@ -12,7 +12,7 @@ import {
 } from "../src/models.ts";
 import { discoverClaudeModels } from "../src/discovery.ts";
 
-const SETTINGS = { plan: "pro", longContextExtraUsage: false, contextWindow: "auto" };
+const SETTINGS = { contextWindow: "auto" };
 
 const PI_MODELS = [
 	{
@@ -21,7 +21,7 @@ const PI_MODELS = [
 		reasoning: true,
 		input: ["text", "image"],
 		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
-		contextWindow: 200_000,
+		contextWindow: 1_000_000,
 		maxTokens: 128_000,
 		thinking: { mode: "anthropic-adaptive", efforts: ["low", "high", "xhigh"], effortMap: { xhigh: "max" } },
 	},
@@ -51,7 +51,7 @@ test("combines retained versions with exact latest-family SDK aliases", () => {
 	const models = projectSupportedModels([
 		{ value: "default", displayName: "Default" },
 		{ value: "claude-opus-4-8", displayName: "Duplicate explicit version" },
-		{ value: "opus", resolvedModel: "claude-opus-5", displayName: "Opus", supportedEffortLevels: ["low", "high", "xhigh", "max"] },
+		{ value: "opus", resolvedModel: "claude-opus-4-8", displayName: "Opus", supportedEffortLevels: ["low", "high", "xhigh", "max"] },
 		{ value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
 		{ value: "fable", resolvedModel: "claude-fable-5", displayName: "Fable", supportedEffortLevels: ["low", "high", "max"] },
 		{ value: "claude-fable-5-1[1m]", displayName: "Fable 5.1", supportedEffortLevels: ["low", "high"] },
@@ -66,16 +66,19 @@ test("combines retained versions with exact latest-family SDK aliases", () => {
 	]);
 	assert.equal(models.find((model) => model.id === "claude-opus-4-8").name, "Claude Opus 4.8");
 	assert.equal(models.find((model) => model.id === "opus").name, "Opus");
+	assert.equal(models.find((model) => model.id === "opus").contextWindow, 1_000_000);
+	assert.equal(models.find((model) => model.id === "sonnet").contextWindow, 1_000_000);
+	assert.equal(models.find((model) => model.id === "fable").contextWindow, 1_000_000);
 	assert.equal(models.find((model) => model.id === "claude-fable-5-1[1m]").contextWindow, 1_000_000);
 });
 
-test("caps bare SDK metadata at 200K but keeps explicit [1m] at 1M", () => {
+test("bare SDK selectors inherit matched canonical metadata and explicit [1m] stays 1M", () => {
 	const metadata = [{ ...PI_MODELS[0], contextWindow: 1_000_000 }];
 	const models = projectSupportedModels([
 		{ value: "fable", resolvedModel: "claude-fable-5" },
 		{ value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5" },
 	], metadata);
-	assert.equal(models.find((model) => model.id === "fable").contextWindow, 200_000);
+	assert.equal(models.find((model) => model.id === "fable").contextWindow, 1_000_000);
 	assert.equal(models.find((model) => model.id === "claude-fable-5[1m]").contextWindow, 1_000_000);
 });
 
