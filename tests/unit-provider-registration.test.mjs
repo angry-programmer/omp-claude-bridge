@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import extension, { __test } from "../src/index.ts";
 
@@ -55,4 +58,53 @@ test("isolates Claude resume state across interleaved provider session maps", ()
 	assert.equal(second.sessionId, "claude-b");
 	assert.notEqual(first.sessionId, second.sessionId);
 	assert.notEqual(firstStates, secondStates);
+});
+
+test("preserves the later tool-result cursor after stale query completion", () => {
+	const cwd = process.cwd();
+	const originalContext = [
+		{ role: "user", content: "prompt", timestamp: 1 },
+		{ role: "assistant", content: [{ type: "text", text: "tool call" }], timestamp: 2 },
+	];
+	const laterContext = [
+		...originalContext,
+		{ role: "toolResult", toolCallId: "tool-1", content: [{ type: "text", text: "done" }], timestamp: 3 },
+	];
+	const nextContext = [...laterContext, { role: "user", content: "next", timestamp: 4 }];
+	const state = __test.createSessionState();
+
+	__test.recordSessionCompletion(state, "claude-a", originalContext.length, cwd, originalContext);
+	__test.recordToolResultCursor(state, laterContext);
+	__test.recordSessionCompletion(state, "claude-a", laterContext.length, cwd, originalContext);
+
+	assert.equal(
+		__test.syncSharedSession(nextContext, cwd, undefined, "claude-sonnet", state).sessionId,
+		"claude-a",
+	);
+	assert.equal(state.cursor, laterContext.length);
+});
+
+test("rebuilds after a shortened rewritten history instead of preserving stale Claude state", () => {
+	const cwd = process.cwd();
+	const configDir = mkdtempSync(join(tmpdir(), "omp-claude-bridge-"));
+	const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+	process.env.CLAUDE_CONFIG_DIR = configDir;
+	try {
+		const state = __test.createSessionState();
+		Object.assign(state, { sessionId: "claude-old", cursor: 3, cwd });
+		const rewrittenContext = [
+			{ role: "user", content: "compacted summary", timestamp: 1 },
+			{ role: "user", content: "next prompt", timestamp: 2 },
+		];
+
+		const result = __test.syncSharedSession(rewrittenContext, cwd, undefined, "claude-sonnet", state);
+
+		assert.equal(result.sessionId, "claude-old");
+		assert.equal(result.preserveSharedSession, undefined);
+		assert.equal(state.cursor, 1);
+	} finally {
+		if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+		else process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+		rmSync(configDir, { recursive: true, force: true });
+	}
 });

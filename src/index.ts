@@ -485,7 +485,6 @@ function reinjectPriorCompactionFileOps(branchEntries: Array<{ type: string; det
 
 interface SyncResult {
 	sessionId: string | null;
-	preserveSharedSession?: boolean;
 }
 
 /**
@@ -550,6 +549,34 @@ function historyFingerprint(messages: Context["messages"]): string {
 	}
 }
 
+function recordToolResultCursor(state: SessionState, messages: Context["messages"]): void {
+	state.cursor = messages.length;
+	state.historyFingerprint = historyFingerprint(messages);
+}
+
+function recordSessionCompletion(
+	state: SessionState,
+	sessionId: string,
+	latestCursor: number,
+	cwd: string,
+	contextMessages: Context["messages"],
+): void {
+	const cursor = Math.max(contextMessages.length, latestCursor, state.cursor);
+	state.sessionId = sessionId;
+	state.cursor = cursor;
+	// A stale query completion can arrive after a tool-result callback has
+	// recorded a longer context. Preserve that newer fingerprint instead of
+	// hashing a shorter, stale context with the newer cursor.
+	if (contextMessages.length >= cursor || !state.cwd) {
+		state.cwd = cwd;
+	}
+	if (contextMessages.length >= cursor) {
+		state.historyFingerprint = historyFingerprint(contextMessages.slice(0, cursor));
+	}
+	state.needsRebuild = false;
+	state.forceRotate = false;
+}
+
 // Two semantic paths:
 //   REUSE — pi's history is in sync with this provider session (or drifted
 //     only by the trailing final-assistant message that pi appends after
@@ -611,15 +638,6 @@ function syncSharedSession(
 			debug(`syncResult: path=reuse sessionId=${state.sessionId} cursor=${state.cursor}`);
 			return { sessionId: state.sessionId };
 		}
-	}
-	// Only reachable when needsRebuild is false — user-facing history rewrites
-	// (/compact, session_tree, /new, fork) are also detected by the history
-	// fingerprint before the next syncSharedSession call. In practice this
-	// fires only for isolated compact-summary subprocesses.
-	if (state?.sessionId && !state.needsRebuild && state.cwd === cwd && priorMessages.length < state.cursor) {
-		debug(`Case 1 synthetic: clean start for shorter context, preserving session ${state.sessionId.slice(0, 8)}, cursor=${state.cursor}`);
-		debug(`syncResult: path=clean-start preserve-session sessionId=${state.sessionId} cursor=${state.cursor}`);
-		return { sessionId: null, preserveSharedSession: true };
 	}
 
 	// REBUILD path
@@ -685,6 +703,8 @@ export const __test = {
 	createSessionState,
 	getSessionState,
 	syncSharedSession,
+	recordSessionCompletion,
+	recordToolResultCursor,
 };
 
 // --- Provider helpers: tool name mapping ---
@@ -1148,6 +1168,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	const stream = newAssistantMessageEventStream();
 	const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
 	const sessionState = getSessionState(options?.providerSessionState, options?.sessionId, cwd) ?? createSessionState();
+	const { mcpTools, customToolNameToSdk, customToolNameToPi } = resolveMcpTools(context, askClaudeToolName);
 
 	// DEBUG: trace followUp message triggering
 	const lastMsgRole = context.messages[context.messages.length - 1]?.role;
@@ -1206,8 +1227,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 				debug(`provider: deferred user message for replay after query: ${userPrompt.slice(0, 60)}`);
 			}
 		}
-		sessionState.cursor = context.messages.length;
-		sessionState.historyFingerprint = historyFingerprint(context.messages);
+		recordToolResultCursor(sessionState, context.messages);
 		resultCtx.latestCursor = Math.max(resultCtx.latestCursor, context.messages.length);
 		return stream;
 	}
@@ -1217,8 +1237,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	// emit end_turn so pi waits for the next real user message.
 	const lastMsg = context.messages[context.messages.length - 1];
 	if (lastMsg?.role === "toolResult") {
-		sessionState.cursor = context.messages.length;
-		sessionState.historyFingerprint = historyFingerprint(context.messages);
+		recordToolResultCursor(sessionState, context.messages);
 		const c = ctx();  // capture current context for the microtask
 		queueMicrotask(() => {
 			c.resetTurnState(model);
@@ -1388,21 +1407,10 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 
 			// --- Capture session ID ---
 			const sessionId = capturedSessionId ?? sessionState.sessionId;
-			if (syncResult.preserveSharedSession) {
-				if (capturedSessionId && capturedSessionId !== sessionState.sessionId) {
-					deleteSession(capturedSessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
-					debug(`provider: query done, deleted ephemeral session ${capturedSessionId.slice(0, 8)} to preserve session`);
-				}
-				debug(`provider: query done, ignoring captured session ${capturedSessionId?.slice(0, 8) ?? "none"} to preserve session`);
-			} else if (sessionId) {
+			if (sessionId) {
 				const cursor = Math.max(context.messages.length, queryCtx.latestCursor, sessionState.cursor);
 				debug(`provider: query done, session=${sessionId.slice(0, 8)}, cursor=${cursor}`);
-				sessionState.sessionId = sessionId;
-				sessionState.cursor = cursor;
-				sessionState.cwd = cwd;
-				sessionState.historyFingerprint = historyFingerprint(context.messages.slice(0, cursor));
-				sessionState.needsRebuild = false;
-				sessionState.forceRotate = false;
+				recordSessionCompletion(sessionState, sessionId, queryCtx.latestCursor, cwd, context.messages);
 			}
 
 			// --- Replay deferred user messages as continuation queries ---
@@ -1428,10 +1436,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 						const { capturedSessionId: contSid } = await consumeQuery(contQuery, customToolNameToPi, model, () => wasAborted, queryCtx);
 						const sid = contSid ?? sessionState.sessionId;
 						if (sid) {
-							sessionState.sessionId = sid;
-							sessionState.cursor = Math.max(sessionState.cursor, queryCtx.latestCursor, context.messages.length);
-							sessionState.cwd = cwd;
-							sessionState.historyFingerprint = historyFingerprint(context.messages.slice(0, sessionState.cursor));
+							recordSessionCompletion(sessionState, sid, queryCtx.latestCursor, cwd, context.messages);
 						}
 					} catch (contError) {
 						debug(`provider: continuation query error:`, contError);
