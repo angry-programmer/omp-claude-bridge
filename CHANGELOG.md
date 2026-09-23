@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Dynamic SDK selectors now inherit matched OMP context metadata, including
   canonical 1M values, without an unconditional 200K cap. Unknown selectors
   remain conservative 128K, while explicit `[1m]` selectors stay at 1M.
+- Upgraded the Claude Agent SDK and now expose each unique `resolvedModel` as an
+  exact selector, so releases such as `claude-opus-5-5[1m]` appear without a
+  hardcoded bridge model-list update. Aliases and resolved selectors inherit
+  current OMP catalog metadata for context, output, image, and thinking support.
 - Static `"auto"` routing now uses 1M for current Fable, Opus, and Sonnet
   entries; Haiku 4.5 remains 200K. The explicit `"200k"` mode and `-200k`
   picker variants remain available where supported.

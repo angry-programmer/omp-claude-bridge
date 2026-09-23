@@ -162,10 +162,43 @@ function findPiAiMetadata(
 	return undefined;
 }
 
+function projectDiscoveredModel(
+	info: ClaudeSupportedModel,
+	id: string,
+	piAiModels: readonly PiAiModel[],
+	canonicalName: boolean,
+): ClaudeProviderModel {
+	const metadata = findPiAiMetadata({ ...info, value: id }, piAiModels);
+	const contextWindow = /\[1m\]$/i.test(id)
+		? ONE_M_CONTEXT
+		: metadata?.contextWindow ?? DEFAULT_DYNAMIC_CONTEXT_WINDOW;
+	const reportsThinking =
+		info.supportsAdaptiveThinking !== undefined ||
+		info.supportsEffort !== undefined ||
+		info.supportedEffortLevels !== undefined;
+	const reasoning = reportsThinking
+		? info.supportsAdaptiveThinking === true ||
+			info.supportsEffort === true ||
+			(info.supportedEffortLevels?.length ?? 0) > 0
+		: Boolean(metadata?.reasoning);
+	const sdkThinking = projectSdkThinking(info);
+	return {
+		id,
+		name: canonicalName ? metadata?.name ?? id : info.displayName || id,
+		reasoning,
+		input: metadata?.input ?? ["text"],
+		cost: metadata?.cost ?? ZERO_COST,
+		contextWindow,
+		maxTokens: metadata?.maxTokens ?? DEFAULT_DYNAMIC_MAX_TOKENS,
+		thinking: reportsThinking ? sdkThinking : projectPiAiThinking(metadata?.thinking),
+	};
+}
+
+
 /**
- * Project the SDK's entries after the retained explicit version entries.
- * SDK values are exact selectors and are never rewritten or given inherited
- * pi-ai effort mappings. Duplicate values are dropped on first occurrence.
+ * Project SDK aliases and their exact resolved selectors after the retained
+ * version entries. Selectors are never rewritten or given inherited pi-ai
+ * effort mappings. Duplicate selectors are dropped on first occurrence.
  */
 export function projectSupportedModels(
 	supportedModels: readonly ClaudeSupportedModel[],
@@ -174,27 +207,16 @@ export function projectSupportedModels(
 	const result = buildModels([...piAiModels]);
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
-		if (!info || typeof info.value !== "string" || !info.value || seen.has(info.value)) continue;
-		seen.add(info.value);
-		const metadata = findPiAiMetadata(info, piAiModels);
-		const contextWindow = /\[1m\]$/i.test(info.value)
-			? ONE_M_CONTEXT
-			: metadata?.contextWindow ?? DEFAULT_DYNAMIC_CONTEXT_WINDOW;
-		const reasoning = info.supportsAdaptiveThinking === true
-			? true
-			: info.supportsEffort !== undefined
-				? info.supportsEffort
-				: (info.supportedEffortLevels?.length ?? 0) > 0;
-		result.push({
-			id: info.value,
-			name: info.displayName || info.value,
-			reasoning,
-			input: metadata?.input ?? ["text"],
-			cost: metadata?.cost ?? ZERO_COST,
-			contextWindow,
-			maxTokens: metadata?.maxTokens ?? DEFAULT_DYNAMIC_MAX_TOKENS,
-			thinking: projectSdkThinking(info),
-		});
+		if (!info || typeof info.value !== "string" || !info.value) continue;
+		if (!seen.has(info.value)) {
+			seen.add(info.value);
+			result.push(projectDiscoveredModel(info, info.value, piAiModels, false));
+		}
+
+		const resolvedModel = info.resolvedModel;
+		if (typeof resolvedModel !== "string" || !resolvedModel || seen.has(resolvedModel)) continue;
+		seen.add(resolvedModel);
+		result.push(projectDiscoveredModel(info, resolvedModel, piAiModels, true));
 	}
 	return result;
 }

@@ -72,6 +72,78 @@ test("combines retained versions with exact latest-family SDK aliases", () => {
 	assert.equal(models.find((model) => model.id === "claude-fable-5-1[1m]").contextWindow, 1_000_000);
 });
 
+test("exposes newly resolved SDK models with canonical metadata without a hardcoded release entry", () => {
+	const opus55 = {
+		id: "claude-opus-5-5",
+		name: "Claude Opus 5.5",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+		contextWindow: 1_000_000,
+		maxTokens: 128_000,
+		thinking: { mode: "anthropic-adaptive", efforts: ["low", "medium", "high", "xhigh"] },
+	};
+	const models = projectSupportedModels([
+		{
+			value: "default",
+			resolvedModel: "claude-opus-5-5[1m]",
+			displayName: "Default (recommended)",
+			supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+			supportsAdaptiveThinking: true,
+		},
+		{
+			value: "opus[1m]",
+			resolvedModel: "claude-opus-5-5[1m]",
+			displayName: "Opus (1M context)",
+			supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+			supportsAdaptiveThinking: true,
+		},
+	], [...PI_MODELS, opus55]);
+
+	for (const id of ["default", "opus[1m]", "claude-opus-5-5[1m]"]) {
+		const model = models.find((entry) => entry.id === id);
+		assert.ok(model, `${id} should be selectable`);
+		assert.equal(model.contextWindow, 1_000_000);
+		assert.equal(model.maxTokens, 128_000);
+		assert.deepEqual(model.input, ["text", "image"]);
+	}
+	assert.equal(models.filter((model) => model.id === "claude-opus-5-5[1m]").length, 1);
+});
+
+test("keeps a unique resolved selector when its SDK alias is already retained", () => {
+	const models = projectSupportedModels([
+		{ value: "claude-opus-4-8", resolvedModel: "claude-opus-4-8[1m]" },
+	], PI_MODELS);
+
+	assert.ok(models.some((model) => model.id === "claude-opus-4-8[1m]"));
+});
+
+test("falls back to canonical thinking metadata when SDK capabilities are omitted", () => {
+	const opus55 = {
+		id: "claude-opus-5-5",
+		name: "Claude Opus 5.5",
+		reasoning: true,
+		input: ["text", "image"],
+		contextWindow: 1_000_000,
+		maxTokens: 128_000,
+		thinking: {
+			mode: "anthropic-adaptive",
+			efforts: ["low", "medium", "high", "xhigh"],
+			effortMap: { xhigh: "max" },
+		},
+	};
+	const models = projectSupportedModels([
+		{ value: "latest-opus", resolvedModel: "claude-opus-5-5[1m]" },
+	], [...PI_MODELS, opus55]);
+
+	for (const id of ["latest-opus", "claude-opus-5-5[1m]"]) {
+		const model = models.find((entry) => entry.id === id);
+		assert.equal(model.reasoning, true);
+		assert.deepEqual(model.thinking.efforts, ["low", "medium", "high", "xhigh"]);
+		assert.equal(model.thinking.effortMap, undefined);
+	}
+});
+
 test("bare SDK selectors inherit matched canonical metadata and explicit [1m] stays 1M", () => {
 	const metadata = [{ ...PI_MODELS[0], contextWindow: 1_000_000 }];
 	const models = projectSupportedModels([

@@ -148,16 +148,18 @@ The `/model` picker combines two sources:
   `claude-sonnet-4-6`, and `claude-fable-5`. These route to that exact model
   version.
 - Claude Code's official Agent SDK `supportedModels()` catalog. Family aliases
-  such as `opus`, `sonnet`, and `fable` route unchanged, so Claude Code—not the
-  bridge—selects the latest version. An alias is shown only when the SDK
-  reports it; the bridge does not invent a `fable` alias.
+  such as `opus[1m]`, `sonnet`, and `fable` route unchanged, so Claude Code—not
+  the bridge—selects the latest version. Each unique SDK `resolvedModel` is also
+  exposed as an exact selector (for example `claude-opus-5-5[1m]`), so new
+  releases appear without another hardcoded bridge update.
 
 SDK display names are preserved. The model picker exposes only SDK effort names
 that OMP represents natively (`low` through `xhigh`) and never translates them;
 `max` remains separately available through AskClaude because OMP currently
 treats its own `max` CLI spelling as an alias for `xhigh`. Cost, input, context,
-and output metadata are enriched from the best matching pi-ai entry. Duplicate
-exact IDs are ignored, and explicit `[1m]` IDs retain 1M context metadata.
+and output metadata are enriched from the best matching OMP catalog entry.
+Duplicate aliases and resolved selectors are ignored, and explicit `[1m]` IDs
+retain 1M context metadata.
 
 If you need a deliberately static catalog, set `provider.models` to a
 non-empty list of exact Claude Code ids. That explicit list bypasses discovery
