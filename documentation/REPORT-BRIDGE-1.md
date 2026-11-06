@@ -1,145 +1,128 @@
-# BRIDGE-1 — re-review acceptance
-
-Re-review findings addressed: **MEDIUM 1/1, LOW 4/4**. Version remains 0.8.2. Tested implementation: `18e64f6`; this report is a subsequent documentation-only commit. Final verification: **56/56 tests**, typecheck passes, real provider probe passes, generation-option boundary smoke passes.
+Summary: Security re-review findings addressed: **MEDIUM 2/2, LOW 3/3**. Version remains 0.8.2. Verified implementation: `b01ff14`; this report and README/changelog updates follow in a documentation-only commit. **69/69 tests**, typecheck passes, real provider probe passes, real generation returns `OK`.
 
 ## Scope and commits
 
 Worktree: `/home/archon/Workspace/omp-claude-bridge/.worktrees/bridge-1`; branch `lane/bridge-1-model-catalog`.
 
-| Finding | Commit | Result |
+| Finding | Commits | Result |
 | --- | --- | --- |
-| MEDIUM-1 | `e2838e1` | Discovery always uses no filesystem settings. Global config defines generation settings/MCP trust ceilings; projects may tighten but cannot loosen them, and loosening warns. Provider and AskClaude honor effective settings regardless of appendSystemPrompt. SECURITY.md documents remaining trust. |
-| LOW-1 + requested cache tests | `e38f8a6` | Snapshot envelope `{version: 1, savedAt, models}` checked on read; accepted fallback warns with age. Tests cover mode 0600, invalid envelopes, successful discovery despite a save failure, and temporary-file cleanup. |
-| LOW-2 | `65c3249` | Explicit `[1m]` picker rows say `(1M, explicit)` in static, discovered, and fallback catalogs; ids and routing unchanged. |
-| LOW-3 | `1f2f13f` | Hints only for aliases in static bridge config or configured OMP model roles. Role hints run at registration, including warm-cache startup. Family targets derive from the retained list; no literal family-version map or unconfigured SDK-alias warnings. |
-| LOW-4 | `18e64f6` | Trusted global config uses native account/launch home, not dotenv-sensitive getAgentDir(). Actual Bun attack tests cover agent-dir and HOME redirection. |
+| MEDIUM-A | `e632379`, `b392ff6` | Global enabled/full-mode ceilings; projects may only disable them. Unauthorized full defaults and malformed defaults become read mode. Explicit unauthorized full requests reject before SDK query. Name/description are global-only. |
+| MEDIUM-B | `055f9f8`, `ddc919f` | One environment helper covers discovery, provider/continuation, AskClaude and compact summaries. Minimal discovery allowlist; generation denylist; authoritative launcher values restored; global-only exact-name trustedEnv; names-only removal logging. Missing provenance fails closed. |
+| LOW-A | `75e2f8f`, `b01ff14` | Committed Bun subprocess test retains real loadConfig and drives registered provider stream plus AskClaude for both appendSystemPrompt values. Verifies settings sources, strict MCP, executable, environment filtering, identity and full-mode rejection. Test launcher removes its two synthetic attack names for determinism. |
+| LOW-B | `f1c40e3` | Snapshot beside trusted config; O_NOFOLLOW + O_NONBLOCK, fstat regular-file check, bounded 1-MB read including concurrent growth. Tests reject symlink, directory, FIFO, /dev/zero and oversized files. |
+| LOW-C | `ca88b48` | Non-object JSON becomes {}; non-array settingSources becomes [] and warns. POSIX account lookup uses passwd home, not HOME; native/passwd mismatch warns. |
 
-All commits end `Refs cursedrollgames/lab#163`, without attribution trailers. Both review files remain uncommitted. No subagents, push, merge, publish, live OMP refresh, main-checkout edits, or deliberate writes under the actual `~/.omp` were performed. Probe configuration/state used temporary directories; probe scripts/directories were removed after smoke proof. Existing symlinks remain untouched.
+All commits end `Refs cursedrollgames/lab#163`, without attribution trailers. All three review files remain uncommitted. No subagents, task tool, push, merge, publish, live OMP refresh, main-checkout edits, or actual ~/.omp writes. Temporary probe files/state were removed; existing symlinks remain untouched. Root REPORT-BRIDGE-1.md exposes this committed documentation file.
 
-The previous review's H 1/1, M 6/6, L 5/5 fixes remain: commits `f2bd8c2`, `18f7f13`, `11c2e44`, `6348685`, `bd6a53b`, `44e6142`, `a500c28`, `f4575b2`, `48466fe`, `6dbf5d3`, `d35ebee`, `e0922c6`; previous report commit `95a1e4b`.
+Previous original-review and second-review fixes remain in history; the previous acceptance report is preserved in `ce2403f`. This report supersedes its native-home and inherited-environment trust claims.
 
-## Settings and remaining trust
+## Trusted policy and home lookup
 
-- Discovery unconditionally sets `settingSources: []`, `strictMcpConfig: true`, `mcpServers: {}`, and `ENABLE_CLAUDEAI_MCP_SERVERS=0`. There is no discovery settingSources override, even from global config.
-- Generation defaults to `settingSources: []` and strict MCP. Global config may explicitly enable sources or disable provider strict MCP. A project's source list is intersected with globally allowed sources; project strict mode may only change false to true. Attempts to add sources or disable globally required strict mode warn and are ignored.
-- Provider generation no longer omits settingSources when appendSystemPrompt is enabled. AskClaude uses the same effective source ceiling and always stays strict for MCP.
-- The executable remains global-only. Trusted global config is `<native account/launch home>/.omp/agent/claude-bridge.json`, independent of cwd dotenv and OMP agent/config/profile overrides. Legitimate custom profile/agent-dir users must put trusted bridge settings in that home-anchored file; project config cannot select another trusted file. Catalog state still follows OMP's agent directory.
-- This is a configuration boundary, not an OS sandbox. Globally enabled Claude settings authorize their hooks/environment, and globally disabled provider strict MCP authorizes filesystem MCP commands. Current process environment may itself contain cwd dotenv values; it is still inherited by SDK children. PATH-based executable resolution, OMP project extensions, the runtime/SDK/CLI, and authorized tools remain separate trust surfaces. SECURITY.md states these limits explicitly.
+Trusted config and snapshot are `<passwd home>/.omp/agent/{claude-bridge.json,claude-bridge-models.json}` on POSIX. OMP agent/profile overrides, cwd dotenv HOME and inherited launcher HOME cannot relocate them. Ordinary project settings still merge, but security policy only tightens:
 
-## LOW-4: installed OMP/Bun investigation on Olympus
+- settingSources intersects global sources; strictMcpConfig cannot become false unless globally allowed. Loosening warns. Discovery always uses [], strict MCP, empty mcpServers and disabled cloud MCP.
+- AskClaude enabled/allowFullMode are global ceilings. Default full without permission becomes read; invalid default modes also become read instead of falling through to an unrestricted tool list. Explicit full is rejected when disallowed. Tool name/description and executable are global-only.
+- Non-object top-level JSON is empty config. Non-array settingSources is [] with a warning.
 
-Observed host: `olympus`; installed OMP package version **18.2.11**; `/home/archon/.bun/bin/bun` version **1.3.10**. Source audit used the installed OMP TypeScript and upstream Bun sources pinned to the installed version; no local Bun source checkout was found.
+**Bun userInfo is not passwd-backed on the installed runtime.** Upstream Bun 1.3.10 [userInfo implementation](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/bun.js/node/node_os.zig#L930-L938) calls its [native homedir lookup](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/bun.js/node/node_os.zig#L304-L330), which considers HOME before passwd. Therefore production now uses an absolute account-lookup binary with an empty environment: Linux `/usr/bin/getent passwd <uid>` (NSS), macOS `/usr/bin/id -P <uid>`. Lookup failure fails closed; UID and absolute home are checked. Windows retains native account-home lookup. Linux was exercised; other OS paths were not run.
 
-**A cwd .env can move getAgentDir().** Installed evidence:
+The actual Olympus lookup returned account home `/home/archon`. An unmocked Bun child with inherited HOME=/untrusted-home still selected `/home/archon/.omp/agent` and emitted the mismatch warning. The existing unmocked cwd-dotenv HOME guard remains. Config fixtures substitute only OS account lookup; real parsing/merging and installed OMP directory resolution run normally.
 
-1. `node_modules/@oh-my-pi/pi-utils/src/dirs.ts:328–334,440–449` reads `process.env.PI_CODING_AGENT_DIR` into the default resolver and resolves it as the agent directory. Profile/config-root selection also reads environment variables.
-2. `node_modules/@oh-my-pi/pi-utils/src/env.ts:287–314` eagerly merges project dotenv values and then calls `refreshDirsFromEnv()`. Its comments at 110–125 separately explain Bun's pre-application dotenv loading and Linux's original exec-environment snapshot.
-3. Bun 1.3.10 [`src/env_loader.zig:580–605,693–694`](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/env_loader.zig#L580-L605) loads default dotenv files when not disabled, including `.env`.
+Installed OMP 18.2.11 still allows cwd dotenv to move getAgentDir(): pi-utils `src/dirs.ts:328–334,440–449` uses PI_CODING_AGENT_DIR; `src/env.ts:287–314` loads dotenv then refreshes directory state. Bun [env_loader.zig](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/env_loader.zig#L580-L605) also loads dotenv before application code. Neither trusted bridge file now uses that resolver. Custom agent/profile users must place trusted bridge policy in the passwd-home file.
 
-A real Bun child launched in a temporary project with `PI_CODING_AGENT_DIR=<malicious-agent>` in `.env` reported that exact agent directory. Before the fix, the regression read `/malicious/claude` from its supposed global config; after the fix, it reads the controlled trusted-home file and retains its no-settings/strict-MCP policy. Only the native home boundary is mocked in that fixture; dotenv loading, installed resolver, and bridge config loading are real.
+## Child environment investigation and policy
 
-**HOME requires a distinction.** Bun's [`node_os.zig:930–938`](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/bun.js/node/node_os.zig#L930-L938) implements userInfo().homedir through its native homedir lookup, whose [`lines 304–330`](https://github.com/oven-sh/bun/blob/bun-v1.3.10/src/bun.js/node/node_os.zig#L304-L330) consider native HOME before passwd fallback. Thus inherited launcher HOME remains trusted; it is not safe to describe this as ignoring every possible HOME override. However cwd dotenv values enter Bun's JS environment without changing the observed native home lookup on this installed runtime. With inherited HOME removed and a cwd `.env` defining HOME, the actual runtime printed:
+Installed source inspected: `node_modules/@oh-my-pi/pi-utils/src/env.ts:110–134,153–247`.
 
-```text
-{"dotenvHome":"/tmp/bridge-native-env-zPUMJl","nativeHome":"/home/archon","userHome":"/home/archon","agentEnv":"/tmp/bridge-native-env-zPUMJl/agent"}
-```
+- OMP privately captures Linux's original `/proc/self/environ`; its public filterChildShellEnv(process.env, cwd) restores launcher values overwritten by dotenv and removes project dotenv additions. The launch map itself is not exported.
+- The bridge uses that public filter for discovery's baseline and the same authoritative Linux exec boundary to distinguish denied launcher names from runtime additions. Preserved launcher values are restored from the original exec environment, never from an overwritten process.env value.
+- Without procfs/non-Linux, denied names fail closed unless globally trusted. A --no-env-file flag alone is not accepted as provenance: OMP can load dotenv after Bun startup. A subprocess regression exercises that branch; it is not a native macOS run.
 
-A separate native-Bun regression, with no OS mock, places a random malicious executable path under dotenv HOME and verifies bridge config never selects it. An inherited `HOME=/tmp/bridge-untrusted-home` probe did affect both native home APIs, confirming the launcher/cwd distinction rather than assuming Node documentation exactly describes Bun. No helper subprocess is required in production.
+Claude's [environment reference](https://code.claude.com/docs/en/env-vars) and installed Agent SDK bundle identify first-party auth names **ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN**. They are discovery's only auth-variable allowlist, with launcher provenance required. Olympus's current process exposed none of those names; real discovery/generation succeeded using ordinary account-file login. No credential values were printed.
 
-## Snapshot behavior and OMP cache limits
+Discovery allows only PATH, HOME, USER, LANG, LC_*, TMPDIR, TERM plus those launcher auth names, or exact globally trusted names. It does not implicitly enable proxies, alternative credential directories or third-party provider selection.
 
-The bridge atomically replaces `claude-bridge-models.json` under OMP's agent directory only after successful nonempty discovery. The envelope has numeric `version: 1`, `savedAt` in Unix epoch milliseconds, and raw SDK `models`. Read validation rejects unsupported versions, nonnumeric/nonfinite/nonpositive/future timestamps, missing/empty model arrays, and entries lacking string ids. Projection failures also fall back safely. Old bare-array snapshots are deliberately rejected; the next successful discovery writes the new format.
+Generation/AskClaude/compact retain process.env minus ANTHROPIC_*_URL, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, *_PROXY/*_proxy, NODE_EXTRA_CA_CERTS, NODE_OPTIONS, BASH_ENV, ENV, CLAUDE_CODE_SHELL_PREFIX and CLAUDE_CODE_USE_*. Original launcher values survive generation. Global provider.trustedEnv re-allows exact current names in all modes, including project dotenv values; project trustedEnv is ignored. HOME is pinned to passwd home unless globally listed. Removal logging contains names only.
 
-On SDK failure: load and reproject a valid snapshot with current alias/window options, otherwise use retained exact metadata, including every retained 1M-capable explicit `[1m]` id. The warning names the fallback and accepted snapshot age in seconds. Failures never rewrite snapshot bytes. Save failures warn but return the freshly discovered catalog; temporary files are cleaned up. Regression verifies mode `0600` and a deterministic rename failure against a directory without relying on permissions/root behavior.
+Installed `@anthropic-ai/claude-agent-sdk/sdk.mjs` transport destructures an explicit env (defaulting to process.env only when omitted), then passes it directly to child_process.spawn. It does **not** merge removed parent keys back into the supplied environment. Real sanitized discovery confirms the account still works.
 
-OMP still caches an ordinary fallback array for 24 hours. Installed `pi-coding-agent/src/config/model-registry.ts:3081–3123` supplies `staticModels: []`, authoritative dynamic models, and a 24-hour TTL; installed `pi-catalog/src/model-manager.ts:299–372` treats a non-null callback result as success and writes a new cache timestamp. There is no bridge-facing “fallback, do not cache” result shape. Consequently snapshot age may grow across repeated OMP TTL renewals; the warning now exposes that staleness. Before the first successful bridge snapshot, discovery-only ids from OMP's separately stored old cache cannot be recovered through this callback. No installed OMP source or live cache was changed.
+Remaining trust is explicit in SECURITY.md: this is the selected denylist, not an OS/environment sandbox. Unlisted environment variables, PATH resolution, the SDK/CLI and selected executable, Claude managed policy, OMP's own project-extension/settings loading and globally authorized hooks/tools remain trusted. Global trustedEnv and globally enabled settings are deliberate opt-ins. New upstream environment knobs require policy review.
+
+## Snapshot integrity and OMP cache limitation
+
+Only successful nonempty discovery atomically replaces the version-1 envelope `{version: 1, savedAt, models}` with mode 0600. Reads require a regular no-follow file, cap bytes at 1 MB, and validate version/timestamp/model entries. Accepted fallback warnings include age. Failed discovery never rewrites saved bytes; save failure warns but still returns the fresh catalog and removes temporary files. Existing mode/save-error regressions pass.
+
+Fallback order: bridge last-good snapshot, then retained exact catalog, including retained [1m] ids. No fallback aliases unless explicitly opted in on a valid saved catalog.
+
+OMP still caches an ordinary fallback array for 24 hours. Installed pi-coding-agent `src/config/model-registry.ts:3081–3123` configures authoritative dynamic models and the TTL; pi-catalog `src/model-manager.ts:299–372` treats a non-null callback result as success and stamps a new cache time. No bridge-facing non-cacheable fallback result exists. The protected snapshot preserves catalog contents but cannot stop OMP renewing that fallback TTL. No installed source/live cache changed.
 
 ## Final verification
 
-Executed after all implementation changes:
+Executed on Olympus with Bun 1.3.10 after the final behavioral/test changes:
 
 ```text
 bun test
-56 pass
+69 pass
 0 fail
-Ran 56 tests across 7 files.
+Ran 69 tests across 9 files.
 
 bun run typecheck
 $ tsc --noEmit
 (exit 0)
 ```
 
-New failures were observed before implementing project-source/MCP ceilings, unconditional discovery isolation, the snapshot envelope/age behavior, distinct picker labels, config-only/warm-cache alias hints, and trusted config's independence from getAgentDir(). Mode/save-failure tests confirm existing safety properties. An obsolete exact display-wording assertion was removed instead of repinning it; the label test checks the actual ambiguity, context and routing.
+New regressions failed before fixes for malformed config, inherited HOME selection, AskClaude ceilings, malformed default-mode escalation, hostile snapshot reads, and missing launcher provenance. Environment tests cover every denied pattern, first-party OAuth/API auth, preserved/restored launcher values, exact trusted-name opt-in, minimal discovery, and names-only logs. Generation coverage is now permanent rather than a deleted smoke script. Obsolete whole-warning-count assertions were removed; diagnostics are checked independently of unrelated environment-removal notices.
 
-### Real provider probe
+### Real provider/security probe
 
-Executed `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-rereview-probe.mts` through actual extension registration and the real Agent SDK/executable. Temporary trusted-home configuration and OMP state were distinct directories. The native home boundary was redirected solely to avoid touching actual home configuration; merging, actual provider callback, SDK, filesystem permissions, and catalog projection remained real. No OMP model manager was instantiated.
+Ran `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-security-probe.mts` against the worktree's actual registered provider and real SDK/native executable `/home/archon/.local/bin/claude` (previously observed 2.1.317). Only trusted bridge policy/state storage was redirected to a temporary fixture; account HOME and Claude login stayed real. No OMP model manager/live refresh was instantiated.
 
-The temporary project requested an invalid executable, extra settings sources and non-strict MCP, and contained a SessionStart hook writing a temporary sentinel. The trusted global executable won; both loosening attempts warned; the sentinel was not created. Only configured role alias `sonnet` emitted a migration hint, once; unconfigured SDK aliases did not warn. Observed output:
+The project requested an invalid executable, additional settings sources, non-strict MCP, full-mode default and trusted endpoint environment. Its SessionStart hook wrote a sentinel if executed. The global executable/policy won. An injected endpoint/config directory was removed, the hook never ran, and the snapshot appeared only beside trusted config, not the project-selected OMP directory.
 
 ```text
-MODE dynamic: 16 models; project hook not executed
-claude-opus-5-5 | Claude Opus 5.5 (1M) | 1000000 | 128000 | low,medium,high,xhigh
-claude-opus-5-5-200k | Claude Opus 5.5 (200K) | 200000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5-5 | Claude Sonnet 5.5 (1M) | 1000000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5-5-200k | Claude Sonnet 5.5 (200K) | 200000 | 128000 | low,medium,high,xhigh
-claude-haiku-5-5 | Claude Haiku 5.5 (1M) | 1000000 | 128000 | low,medium,high,xhigh
-claude-haiku-5-5-200k | Claude Haiku 5.5 (200K) | 200000 | 128000 | low,medium,high,xhigh
-claude-fable-5-1 | Claude Fable 5.1 (1M) | 1000000 | 128000 | low,medium,high,xhigh
-claude-fable-5-1-200k | Claude Fable 5.1 (200K) | 200000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5 | Claude Sonnet 5 (1M) | 1000000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5-200k | Claude Sonnet 5 (200K) | 200000 | 128000 | low,medium,high,xhigh
-claude-haiku-4-5 | Claude Haiku 4.5 (200K) | 200000 | 64000 | low,medium,high,xhigh
-claude-opus-5-5[1m] | Claude Opus 5.5 (1M, explicit) | 1000000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5-5[1m] | Claude Sonnet 5.5 (1M, explicit) | 1000000 | 128000 | low,medium,high,xhigh
-claude-haiku-5-5[1m] | Claude Haiku 5.5 (1M, explicit) | 1000000 | 128000 | low,medium,high,xhigh
-claude-fable-5-1[1m] | Claude Fable 5.1 (1M, explicit) | 1000000 | 128000 | low,medium,high,xhigh
-claude-sonnet-5[1m] | Claude Sonnet 5 (1M, explicit) | 1000000 | 128000 | low,medium,high,xhigh
-SNAPSHOT version=1; mode=600
+MODE dynamic: 16 exact models; snapshot trusted, mode=600; project hook not executed
 MODE aliases-200k: 20 models
 MODE warm-failure: 16 models; last-good bytes unchanged
-MODE cold-failure: 16 models; explicit retained 1M resolvable
-MODE static: 9 models; warnings=0
-RE-REVIEW PROVIDER PROBE PASS
+MODE cold-failure: 16 retained models; explicit 1M resolvable
+MODE static: 4 models; no discovery
+REAL GENERATION: AskClaude default exact Opus 5.5; reply=OK; project endpoint/config rejected; hook not executed
+SECURITY PROVIDER PROBE PASS; REAL GENERATION 1/1 ACCEPTED
 ```
 
-The deliberately aged snapshot produced `using last-good exact catalog (age 120s)` on executable failure; cold failure named the retained catalog. Static mode included one explicit entry to check its name against the base entry and did not run discovery.
+The probe ran twice during this security pass; both real one-word generations returned OK (2/2 total). The final acceptance run includes one of those generations; no SDK query stub was used. The separate committed generation regression uses a query stub and makes no network request.
 
-### Generation-option smoke
-
-Executed `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-rereview-generation-smoke.mts`. This exercised the registered provider stream and AskClaude tool with a query-boundary SDK stub, **not a new network generation**. Real config merging rejected project `settingSources: ["user", "project"]` and `strictMcpConfig: false` against global sources `["user"]` and strict true. Both paths passed only `["user"]` and strict MCP to the query for either appendSystemPrompt value:
+A final `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-security-catalog.mts` printed the full live catalog through actual registration/discovery. Output (`id | context | maxOut | thinking`):
 
 ```text
-GENERATION BOUNDARY provider+AskClaude: appendSystemPrompt=false; sources=user; strict=true
-GENERATION BOUNDARY provider+AskClaude: appendSystemPrompt=true; sources=user; strict=true
-GENERATION BOUNDARY SMOKE PASS (SDK query stub; no network generation)
+claude-opus-5-5 | 1000000 | 128000 | low,medium,high,xhigh
+claude-opus-5-5-200k | 200000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5-5 | 1000000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5-5-200k | 200000 | 128000 | low,medium,high,xhigh
+claude-haiku-5-5 | 1000000 | 128000 | low,medium,high,xhigh
+claude-haiku-5-5-200k | 200000 | 128000 | low,medium,high,xhigh
+claude-fable-5-1 | 1000000 | 128000 | low,medium,high,xhigh
+claude-fable-5-1-200k | 200000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5 | 1000000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5-200k | 200000 | 128000 | low,medium,high,xhigh
+claude-haiku-4-5 | 200000 | 64000 | low,medium,high,xhigh
+claude-opus-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-haiku-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-fable-5-1[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+REAL CATALOG: 16 models
 ```
 
-### Prior real generation evidence retained
+Metadata source remains installed pi-ai where available, supplemented by the installed Claude Code catalog for missing Sonnet/Haiku 5.5 metadata. SDK supported effort names project to OMP-native low/medium/high/xhigh; AskClaude separately supports max. Explicit [1m] picker rows remain labeled `(1M, explicit)`. Configured hidden aliases receive one retained-list-derived exact-target hint; unconfigured discovery aliases do not warn. Hidden aliases do not become selectable OMP role ids without includeAliases opt-in.
 
-The preceding review pass ran twelve actual one-word requests through Claude Code **2.1.317** at `/home/archon/.local/bin/claude`. All returned `OK` with matching canonical releases; these paid probes were not repeated in this re-review.
+### Prior selector-generation evidence retained
 
-| Requested form | Claude Code selector | Reply | Reported context | Runtime max output |
-| --- | --- | --- | ---: | ---: |
-| `claude-opus-5-5` | `claude-opus-5-5` | OK | 1000000 | 128000 |
-| `claude-opus-5-5-200k` | `claude-opus-5-5` | OK | 1000000 | 128000 |
-| `claude-opus-5-5[1m]` | `claude-opus-5-5[1m]` | OK | 1000000 | 128000 |
-| `claude-sonnet-5-5` | `claude-sonnet-5-5` | OK | 1000000 | 128000 |
-| `claude-sonnet-5-5-200k` | `claude-sonnet-5-5` | OK | 1000000 | 128000 |
-| `claude-sonnet-5-5[1m]` | `claude-sonnet-5-5[1m]` | OK | 1000000 | 128000 |
-| `claude-haiku-5-5` | `claude-haiku-5-5` | OK | 1000000 | 128000 |
-| `claude-haiku-5-5-200k` | `claude-haiku-5-5` | OK | 1000000 | 128000 |
-| `claude-haiku-5-5[1m]` | `claude-haiku-5-5[1m]` | OK | 1000000 | 128000 |
-| `claude-fable-5-1` | `claude-fable-5-1` | OK | 1000000 | 64000 |
-| `claude-fable-5-1-200k` | `claude-fable-5-1` | OK | 1000000 | 64000 |
-| `claude-fable-5-1[1m]` | `claude-fable-5-1[1m]` | OK | 1000000 | 64000 |
+The first review pass exercised base, -200k and [1m] for each of claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5 and claude-fable-5-1: **12/12 actual one-word generations accepted**, all replies OK. -200k translated to bare CLI selectors; explicit [1m] was passed through. All reported 1M runtime context; runtime max output was 128K except Fable's 64K default. The bridge catalog's Fable upper limit remains 128K. Full per-selector output is preserved in report commit `95a1e4b` and subsequent `ce2403f`.
 
-Bridge `-200k` variants translate to bare selectors and control OMP's compaction threshold, not a Claude Code server context cap. These were minimal requests reporting runtime metadata, not a million-token stress test. Picker maximum output is not necessarily the CLI default: Fable's catalog upper limit is 128K, observed runtime default 64K. Installed pi-ai supplies current retained metadata where available; the installed Claude Code catalog supplements missing Sonnet/Haiku 5.5 entries. SDK efforts remain exact, with OMP-native low through xhigh in the picker and separate max through AskClaude.
+Thus -200k controls OMP's compaction threshold, not a Claude Code server context cap. No million-token stress test is claimed. Legacy removed ids retain routing-only window metadata; -latest and non-retained window variants still fail clearly.
 
-## Evaluation and handoff
+## Self-evaluation and handoff
 
-Accuracy 4/5: tests and real probes ground the claims; Bun's native HOME distinction is runtime/version-specific and explicitly bounded. Completeness 5/5: all five findings, requested permission/save-error coverage, source investigation, and acceptance commands are covered. Clarity 4/5: the trust boundary has several layers, now separated into settings, launcher environment, and model state. Actionability 5/5: exact commits, global path change, cache behavior and trust limits are documented. Conciseness 4/5: full catalog and historical generation evidence retained for review. Overall 4.4/5. Highest-impact cautions: custom profile users must migrate trusted bridge config to the home-anchored path; do not treat these changes as sanitizing OMP/project environment or extensions. Would the user agree? The requested evidence and limits are explicit; rollout/integration remains the owner's action. No independent subagent review was dispatched because this lane forbids subagents.
+Accuracy 5/5: actual tests, installed-source inspection and real account probes ground the claims; non-Linux limitations are explicit. Completeness 5/5: all five findings plus requested committed generation/mode/save tests and final commands covered. Clarity 4/5: policy, environment provenance and cache trust are separated. Actionability 5/5: exact commits, trusted path, migration impact and remaining risks recorded. Conciseness 4/5: full catalog output retained to satisfy the original brief. No additional worker/orchestrator actions required in this worktree.
 
-The root `REPORT-BRIDGE-1.md` symlink exposes this committed report. The boundary identifies tested implementation; final chat identifies the later report commit.
-
-SLICE-BOUNDARY: BRIDGE-1 omp-claude-bridge lane/bridge-1-model-catalog@18e64f6 — re-review fixes M 1/1 L 4/4, tests 56/56, typecheck pass yes
+SLICE-BOUNDARY: BRIDGE-1 omp-claude-bridge lane/bridge-1-model-catalog@b01ff14 — security fixes M 2/2 L 3/3, tests 69/69, typecheck pass yes, real generation ok yes

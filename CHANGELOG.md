@@ -20,7 +20,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - Dynamic catalogs use OMP's `fetchDynamicModels` SQLite cache (24-hour TTL).
-  Failed discovery logs one warning and reuses a bridge-owned last-good snapshot
+  Failed discovery warns and reuses a bridge-owned last-good snapshot
   before the retained table. Only successful SDK discovery writes the snapshot.
   Retained explicit `[1m]` selectors also remain resolvable in cold fallback.
 - Last-good snapshots have a checked version/timestamp envelope; discovery
@@ -44,9 +44,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Discovery never loads filesystem Claude settings. Generation settings/MCP trust
   is global-only: project config may tighten but never loosen it; attempted
   loosening warns. Generation defaults to no settings sources and strict MCP.
+- AskClaude enabled/full-mode ceilings and tool identity cannot be loosened by
+  project config. Unauthorized or malformed defaults become read mode; explicit
+  unauthorized full-mode execution is rejected.
+- All Claude subprocess environments use one helper: minimal discovery allowlist,
+  generation endpoint/auth/proxy/loader denylist, authoritative launcher values
+  retained, global-only `provider.trustedEnv` escape hatch, names-only logging.
 - Executable paths are honored only from global bridge config. Trusted global
-  config is anchored to the native account/launch home, independent of cwd
-  dotenv and OMP agent/config/profile directory overrides.
+  config and snapshot use the passwd home, independent of inherited/cwd HOME
+  and OMP agent/config/profile overrides; native-home mismatches warn.
+- Non-object config becomes empty; non-array settings sources become empty and
+  warn. Snapshot reads reject symlinks/non-regular files and exceed-1-MB content.
+- Committed subprocess regression exercises real config on provider and AskClaude
+  generation with both system-prompt append settings.
 - Discovery receives only its named provider options, never arbitrary project
   JSON keys such as the internal query function or timeout override.
 - Moving `-latest` selectors are excluded even with alias opt-in and rejected

@@ -226,7 +226,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 ## Configuration reference
 
-Config is read from the native account/launch home at `.omp/agent/claude-bridge.json` and `.omp/claude-bridge.json` in the project. The global path ignores cwd dotenv values (including `HOME`) and OMP agent/config/profile directory overrides; inherited launcher environment remains trusted. Project settings override ordinary global settings except `pathToClaudeCodeExecutable` (global only), `settingSources` (projects may only remove sources), and `strictMcpConfig` (projects may only enable strict mode). Loosening attempts warn and are ignored. See [SECURITY.md](SECURITY.md). A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
+Trusted config is read from the account's passwd home at `.omp/agent/claude-bridge.json`; project config is `.omp/claude-bridge.json`. `HOME`, cwd dotenv and OMP directory/profile overrides cannot redirect the trusted POSIX file. A native/passwd home mismatch warns. Projects may override ordinary settings but only tighten settings/MCP and AskClaude capability ceilings. Executable, tool name/description, and `provider.trustedEnv` are global-only. See [SECURITY.md](SECURITY.md) for child-environment filtering, launcher provenance, and remaining trust limits. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
 ```json
 {
@@ -247,13 +247,13 @@ Config is read from the native account/launch home at `.omp/agent/claude-bridge.
 
 | Key | Default | Description |
 | --- | ------- | ----------- |
-| `enabled` | `true` | Register the AskClaude tool. |
-| `name` | `"AskClaude"` | Override the tool's OMP-side name. |
+| `enabled` | `true` | Register AskClaude; projects may only disable it. |
+| `name` | `"AskClaude"` | Global-only OMP-side tool name. |
 | `label` | `"Ask Claude Code"` | Override the TUI label. |
-| `description` | — | Override the tool description shown to the model. |
-| `defaultMode` | `"read"` | `"read"`, `"none"`, or `"full"`. |
+| `description` | — | Global-only tool description shown to the model. |
+| `defaultMode` | `"read"` | `"read"`, `"none"`, or authorized `"full"`; unauthorized or invalid values become `"read"`. |
 | `defaultIsolated` | `false` | Start each call in a fresh session. |
-| `allowFullMode` | `true` | Allow `mode: "full"`; set `false` to lock it out. |
+| `allowFullMode` | `true` | Global capability ceiling; projects may only disable full mode. Unauthorized explicit full requests are rejected. |
 | `appendSkills` | `true` | Forward OMP's skills block into the system prompt. |
 
 **`provider`**
@@ -267,10 +267,11 @@ Config is read from the native account/launch home at `.omp/agent/claude-bridge.
 | `settingSources` | `[]` | Global generation trust ceiling for Claude Code filesystem settings/hooks; projects may only remove sources. Discovery always uses `[]`. |
 | `strictMcpConfig` | `true` | Block filesystem MCP. Only global config can disable it; projects may enable it. Discovery and AskClaude always stay strict. Cloud MCP is always blocked. |
 | `pathToClaudeCodeExecutable` | — | Trusted global config only. Path to the `claude` binary for discovery and requests; project values are ignored. |
+| `trustedEnv` | `[]` | Global-only exact names to re-allow in child environments, including discovery. Explicitly trusts current values, even project dotenv; never list untrusted endpoint/auth/loader values. |
 
 ## How it works
 
-OMP's built-in tools are bridged to Claude Code and back. Without explicit `provider.models`, OMP invokes an initialization-only Agent SDK query through `fetchDynamicModels` and caches the returned catalog for 24 hours. Exact discovered selectors enrich the retained catalog in [`src/models.ts`](src/models.ts); aliases require opt-in. Explicit static configuration bypasses discovery. Failed discovery reuses the bridge-owned last-good snapshot before the retained table.
+OMP's built-in tools are bridged to Claude Code and back. Without explicit `provider.models`, OMP invokes an initialization-only Agent SDK query through `fetchDynamicModels` and caches the returned catalog for 24 hours. Exact discovered selectors enrich the retained catalog in [`src/models.ts`](src/models.ts); aliases require opt-in. Explicit static configuration bypasses discovery. Failed discovery reuses the bridge-owned last-good snapshot beside trusted config before the retained table. Snapshot reads refuse symlinks/non-regular files and are bounded to 1 MB; successful discovery alone atomically writes mode 0600.
 
 ## Debugging
 
