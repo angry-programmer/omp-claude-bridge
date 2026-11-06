@@ -27,6 +27,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   separate, while the OMP model picker exposes only OMP-native exact names.
 
 ### Fixed
+- AskClaude defaults to exact `claude-opus-5-5`, not the moving `opus` alias.
 - Retained Opus/Sonnet/Haiku 5.5 and Fable 5.1 metadata: 1M defaults,
   200K variants, 128,000 output tokens, and native adaptive-thinking efforts.
   Static mode recognizes these ids without unknown-context warnings.

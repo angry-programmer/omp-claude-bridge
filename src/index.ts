@@ -126,6 +126,12 @@ function resolveModel(input: string) {
 	return _resolveModel(configuredModels, input);
 }
 
+function resolveAskClaudeModel(requestedModel = "claude-opus-5-5") {
+	const model = resolveModel(requestedModel);
+	const modelId = model?.id ?? requestedModel;
+	return { modelId, cliModel: model ? claudeCodeModelId(model, contextWindowSettings) : modelId };
+}
+
 // --- Error handling ---
 
 function errorMessage(err: unknown): string {
@@ -705,6 +711,7 @@ export const __test = {
 	syncSharedSession,
 	recordSessionCompletion,
 	recordToolResultCursor,
+	resolveAskClaudeModel,
 };
 
 // --- Provider helpers: tool name mapping ---
@@ -1521,10 +1528,7 @@ async function promptAndWait(
 	},
 ): Promise<{ responseText: string; stopReason: string }> {
 	const cwd = process.cwd();
-	const requestedModel = options?.model ?? "opus";
-	const model = resolveModel(requestedModel);
-	const modelId = model?.id ?? requestedModel;
-	const cliModel = model ? claudeCodeModelId(model, contextWindowSettings) : modelId;
+	const { modelId, cliModel } = resolveAskClaudeModel(options?.model);
 	// Session resume for shared mode — synchronize this runtime's AskClaude
 	// session against its context before deciding whether to resume. Provider
 	// stream state is intentionally not consulted here: the stream callback can
@@ -1836,7 +1840,7 @@ export default function (pi: ExtensionAPI) {
 		const askClaudeParams = Type.Object({
 			prompt: Type.String({ description: "The question or task for Claude Code. By default Claude sees the full conversation history. Don't research up front, let Claude explore." }),
 			mode: Type.Optional(StringEnum(modeValues, { description: modeDesc })),
-			model: Type.Optional(Type.String({ description: 'Claude model (e.g. "opus", "sonnet", "haiku", or full ID). Defaults to "opus".' })),
+			model: Type.Optional(Type.String({ description: 'Claude model id. Defaults to exact "claude-opus-5-5"; aliases require explicit caller selection.' })),
 			thinking: Type.Optional(StringEnum(["off", ...CLAUDE_EFFORT_LEVELS] as const, { description: "Thinking effort level. Omit to use Claude Code's default. Supported names are low, medium, high, xhigh, and max." })),
 			isolated: Type.Optional(Type.Boolean({ description: "When true, Claude sees only this prompt (clean session). When false (default), Claude sees the full conversation history." })),
 		});

@@ -203,7 +203,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 | --------- | ------ | ----------- |
 | `prompt` | string | The question or task for Claude Code. |
 | `mode` | `read` (default), `none`, `full` | `read` = read files + web; `full` = read/write/bash. Lock `full` out with `allowFullMode: false`. |
-| `model` | `opus` (default), `sonnet`, `haiku`, or a full id | Dynamic SDK aliases and exact values are passed directly to Claude Code; an alias not in the current catalog is still sent unchanged. |
+| `model` | `claude-opus-5-5` (default), or an explicit selector | Defaults to exact Opus 5.5 even before discovery; aliases are used only when explicitly requested. |
 | `thinking` | `off`, `low`, `medium`, `high`, `xhigh`, `max` | Exact Claude Code effort name. Levels are never translated by position or remapped (`xhigh` stays `xhigh`; `max` stays `max`). |
 | `isolated` | boolean (default `false`) | When `true`, Claude gets a clean session with no conversation history. |
 
