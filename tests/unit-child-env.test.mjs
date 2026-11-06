@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const modulePath = new URL("../src/child-env.ts", import.meta.url).pathname;
 const denied = ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "http_proxy", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_CODE_USE_BEDROCK", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "ZDOTDIR", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_SSH_COMMAND", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_LOG_USER_PROMPTS", "CLAUDE_CODE_ENABLE_TELEMETRY", "NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE"];
-function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, childDotenv, noProvenance = false, platform = noProvenance ? "darwin" : undefined } = {}) {
+function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, childDotenv, noProvenance = false, platform = noProvenance ? "darwin" : undefined, pathHelper = 'PATH="/opt/homebrew/bin:/Users/bridge/.bun/bin:/usr/bin:/bin"; export PATH;' } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "bridge-env-"));
 	const files = { ".env": dotenv, ...dotenvFiles };
 	for (const [name, values] of Object.entries(files)) writeFileSync(join(root, name), Object.entries(values).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n"));
@@ -22,7 +22,21 @@ function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRI
 	try {
 		const child = spawnSync(process.execPath, ["--eval", `
 			Object.assign(process.env, ${JSON.stringify(runtime)});
-			${platform ? `await import(${JSON.stringify(import.meta.resolve("@oh-my-pi/pi-utils"))}); await import(${JSON.stringify(new URL("../src/trusted-paths.ts", import.meta.url).pathname)}); Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });` : ""}
+			${platform ? `
+				await import(${JSON.stringify(import.meta.resolve("@oh-my-pi/pi-utils"))});
+				await import(${JSON.stringify(new URL("../src/trusted-paths.ts", import.meta.url).pathname)});
+				${platform === "darwin" ? `
+					const { mock } = await import("bun:test");
+					const cp = await import("node:child_process"), nativeExec = cp.execFileSync;
+					mock.module("node:child_process", () => ({ ...cp, execFileSync(command, args, options) {
+						if (command !== "/usr/libexec/path_helper") return nativeExec(command, args, options);
+						if (JSON.stringify(args) !== '["-s"]' || JSON.stringify(options.env) !== "{}" || options.cwd !== "/") throw new Error("unsafe path_helper invocation");
+						if (${JSON.stringify(pathHelper)} === null) throw new Error("path_helper unavailable; secret-helper-output");
+						return ${JSON.stringify(pathHelper)};
+					} }));
+				` : ""}
+				Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
+			` : ""}
 			${noProvenance ? 'process.execArgv.push("--no-env-file");' : ""}
 			const { buildClaudeEnv } = await import(${JSON.stringify(modulePath)});
 			const selected = env => Object.fromEntries(${JSON.stringify(selectedNames)}.filter(key => env[key] !== undefined).map(key => [key, env[key]]));
@@ -56,9 +70,9 @@ test("loader, shell and telemetry values from dotenv never reach any child", () 
 
 test("launcher values survive only when no cwd dotenv defines the denied name", () => {
 	const { generation, discovery, summary } = childEnv({ launcher: { ANTHROPIC_API_KEY: "launcher-key", ANTHROPIC_BASE_URL: "https://launcher.invalid" } });
-	assert.equal(generation.ANTHROPIC_API_KEY, "launcher-key");
-	assert.equal(summary.ANTHROPIC_BASE_URL, "https://launcher.invalid");
-	assert.equal(discovery.ANTHROPIC_API_KEY, "launcher-key");
+	assert.equal(generation.ANTHROPIC_API_KEY, process.platform === "linux" ? "launcher-key" : undefined);
+	assert.equal(summary.ANTHROPIC_BASE_URL, process.platform === "linux" ? "https://launcher.invalid" : undefined);
+	assert.equal(discovery.ANTHROPIC_API_KEY, process.platform === "linux" ? "launcher-key" : undefined);
 	assert.equal(discovery.ANTHROPIC_BASE_URL, undefined);
 });
 
@@ -79,7 +93,7 @@ test("a denied name defined by dotenv is untrusted even when the launcher owns i
 
 test("trusted names may use only a safe value restored into the provenance-filtered base", () => {
 	const result = childEnv({ trustedEnv: ["ANTHROPIC_BASE_URL"], launcher: { ANTHROPIC_BASE_URL: "https://launcher.invalid" }, dotenv: { ANTHROPIC_BASE_URL: "https://project.invalid" }, runtime: { ANTHROPIC_BASE_URL: "https://project.invalid" } });
-	for (const mode of ["generation", "discovery", "summary"]) assert.equal(result[mode].ANTHROPIC_BASE_URL, "https://launcher.invalid");
+	for (const mode of ["generation", "discovery", "summary"]) assert.equal(result[mode].ANTHROPIC_BASE_URL, process.platform === "linux" ? "https://launcher.invalid" : undefined);
 });
 
 test("without authoritative provenance a flag cannot bless runtime values", () => {
@@ -117,15 +131,17 @@ test("generation preserves ordinary launcher variables and unrelated trusted pro
 	for (const name of Object.keys(launcher)) assert.equal(result.generation[name], launcher[name], name);
 });
 
-test("PATH defined identically by dotenv falls back to the launcher path with a warning", () => {
+test("PATH defined identically by dotenv gets a trusted platform fallback with a warning", () => {
 	const { generation, warnings } = childEnv({ launcher: { PATH: "/usr/bin:/bin" }, dotenv: { PATH: "/usr/bin:/bin" } });
-	assert.equal(generation.PATH, "/usr/bin:/bin");
+	if (process.platform === "linux") assert.equal(generation.PATH, "/usr/bin:/bin");
+	else { assert.ok(generation.PATH.split(":").includes("/usr/bin")); assert.ok(generation.PATH.split(":").every(part => part.startsWith("/"))); }
 	assert.match(warnings, /PATH.*fallback/i);
 });
 
-test("a non-denied launcher PATH overrides a different dotenv PATH", () => {
+test("a different dotenv PATH is replaced by launcher or trusted system PATH", () => {
 	const result = childEnv({ launcher: { PATH: "/usr/bin:/bin" }, runtime: { PATH: "./untrusted-bin" }, dotenv: { PATH: "./untrusted-bin" } });
-	assert.equal(result.generation.PATH, "/usr/bin:/bin");
+	if (process.platform === "linux") assert.equal(result.generation.PATH, "/usr/bin:/bin");
+	else { assert.ok(result.generation.PATH.split(":").includes("/usr/bin")); assert.equal(result.generation.PATH.includes("untrusted-bin"), false); }
 });
 
 test("a child cwd different from launch cwd excludes dotenv values from both", () => {
@@ -134,4 +150,29 @@ test("a child cwd different from launch cwd excludes dotenv values from both", (
 		assert.equal(result[mode].BRIDGE_PROJECT_VALUE, undefined, mode);
 		assert.equal(result[mode].CHILD_PROJECT_VALUE, undefined, mode);
 	}
+});
+
+test("Darwin preserves fail-closed auth policy and uses system path_helper entries, not dotenv PATH", () => {
+	const result = childEnv({ platform: "darwin", launcher: { ANTHROPIC_API_KEY: "launcher-key", PATH: "/usr/bin:/bin" }, dotenv: { PATH: "/usr/bin:/bin", ANTHROPIC_BASE_URL: "https://project.invalid" }, runtime: { ANTHROPIC_BASE_URL: "https://project.invalid" }, trustedEnv: ["ANTHROPIC_BASE_URL"] });
+	for (const mode of ["generation", "discovery", "summary"]) {
+		assert.equal(result[mode].ANTHROPIC_API_KEY, undefined);
+		assert.equal(result[mode].ANTHROPIC_BASE_URL, undefined);
+		assert.equal(result[mode].PATH, "/opt/homebrew/bin:/Users/bridge/.bun/bin:/usr/bin:/bin");
+	}
+	assert.match(result.warnings, /path_helper.*PATH fallback/);
+	assert.equal(result.warnings.includes("launcher-key"), false);
+});
+
+test("Darwin path_helper output is parsed as data and never evaluated as shell code", () => {
+	const root = mkdtempSync(join(tmpdir(), "bridge-path-helper-")), marker = join(root, "executed");
+	try {
+		for (const pathHelper of [`PATH="$(touch ${marker})"; export PATH;`, 'PATH="./project-bin:/usr/bin"; export PATH;', null]) {
+			assert.throws(() => childEnv({ platform: "darwin", dotenv: { PATH: "./project-bin" }, runtime: { PATH: "./project-bin" }, pathHelper }), error => {
+				assert.match(error.message, /trusted macOS system PATH/);
+				assert.equal(error.message.includes("secret-helper-output"), false);
+				return true;
+			});
+			assert.equal(existsSync(marker), false);
+		}
+	} finally { rmSync(root, { recursive: true, force: true }); }
 });

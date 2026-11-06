@@ -158,10 +158,28 @@ account pin. Removed names are logged, never values; bridge isolation switches
 remain enforced.
 
 If filtering removes or empties PATH, the bridge warns and restores Linux's
-launcher PATH, or uses a fixed system PATH when launcher provenance is absent.
-This is the one deliberate raw-launcher restore, even when dotenv defines the
-same PATH. Ordinary launcher `USER`, `LANG`, `TMPDIR`, `SHELL` and
-`SSH_AUTH_SOCK` survive generation when no same-name project value replaces them.
+launcher PATH. Darwin keeps an empty launcher map: denied values require global
+trust, and dotenv replacements are not restored from raw `process.env`.
+`KERN_PROCARGS2` is not used through a separate helper because
+[XNU may redact another process's environment for restricted targets](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sysctl.c).
+There is no `ps` text or post-dotenv snapshot treated as exec-time provenance.
+
+Darwin's PATH fallback runs absolute `/usr/libexec/path_helper -s`, with an
+empty environment and cwd `/`, to read the system `/etc/paths` and `/etc/paths.d`
+policy. It preserves Homebrew/custom entries configured there rather than
+substituting a fixed list. User-only shell additions (such as `~/.bun/bin`)
+are not invented: they survive when OMP keeps the inherited PATH, or must be
+included in system path policy if a fallback is needed. Output is parsed as
+data, never evaluated as shell code; empty/relative entries, shell expansion
+or escaped output, helper failures and timeouts refuse child construction
+without exposing helper output. The successful system result is cached.
+See [Apple's path_helper source](https://github.com/apple-oss-distributions/shell_cmds/blob/main/path_helper/path_helper.c).
+
+Other platforms without launcher provenance retain the fixed system fallback.
+Linux's PATH fallback is the one deliberate raw-launcher restore, even when
+dotenv defines the same PATH. Ordinary launcher `USER`, `LANG`, `TMPDIR`,
+`SHELL` and `SSH_AUTH_SOCK` survive generation when no same-name project value
+replaces them.
 On Windows, policy, dotenv and trusted names are compared case-insensitively
 and child environment keys are canonicalized to uppercase.
 

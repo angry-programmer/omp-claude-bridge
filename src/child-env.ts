@@ -1,4 +1,5 @@
 import { filterChildShellEnv, parseEnvFile } from "@oh-my-pi/pi-utils";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -26,6 +27,33 @@ function launchEnvironment(): Map<string, string> {
 	return new Map();
 }
 const launcher = launchEnvironment();
+
+let macosSystemPath: string | undefined;
+function fallbackPath(): { value: string; source: string } {
+	const original = launcher.get("PATH");
+	if (original) return { value: original, source: "launcher" };
+	if (process.platform === "darwin") {
+		if (macosSystemPath === undefined) {
+			try {
+				// path_helper reads /etc/paths and /etc/paths.d. Do not inherit PATH,
+				// invoke a shell, or evaluate the shell program it prints.
+				const output = execFileSync("/usr/libexec/path_helper", ["-s"], {
+					env: {}, cwd: "/", encoding: "utf8", timeout: 5000, maxBuffer: 64 * 1024,
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+				const path = /^PATH="([^"\\$`\r\n]+)"; export PATH;$/m.exec(output)?.[1];
+				if (!path || path.split(":").some(part => !part.startsWith("/"))) throw new Error("Invalid system PATH");
+				macosSystemPath = path;
+			} catch {
+				// Helper errors can quote output; never expose them or fall back to
+				// process.env, which may already contain the project's PATH.
+				throw new Error("claude-bridge: could not obtain trusted macOS system PATH; refusing child environment");
+			}
+		}
+		return { value: macosSystemPath, source: "macOS path_helper" };
+	}
+	return { value: process.platform === "win32" ? "C:\\Windows\\System32;C:\\Windows" : "/usr/local/bin:/usr/bin:/bin", source: "fixed system" };
+}
 const authNames = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
 const deniedNames = [
 	"CLAUDE_CONFIG_DIR", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX",
@@ -116,9 +144,9 @@ export function buildClaudeEnv(
 		result[name] = value;
 	}
 	if (!result.PATH) {
-		const original = launcher.get("PATH");
-		result.PATH = original || (process.platform === "win32" ? "C:\\Windows\\System32;C:\\Windows" : "/usr/local/bin:/usr/bin:/bin");
-		console.error(`claude-bridge: PATH removed or empty; using ${original ? "launcher" : "fixed system"} PATH fallback`);
+		const fallback = fallbackPath();
+		result.PATH = fallback.value;
+		console.error(`claude-bridge: PATH removed or empty; using ${fallback.source} PATH fallback`);
 	}
 	// HOME selects Claude's credential store too. Rejected overrides retain the
 	// passwd account pin, even when HOME was explicitly named in trustedEnv.

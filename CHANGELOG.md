@@ -58,6 +58,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   value collisions no longer discard trusted proxies or ordinary variables.
   Missing PATH warns and falls back to launcher/system PATH. Logging contains
   names only; SECURITY.md documents parser and platform limits.
+- Darwin keeps fail-closed launcher provenance, but a lost PATH now comes from
+  `/usr/libexec/path_helper -s` with an empty environment rather than a fixed
+  list. System-configured Homebrew/custom entries survive fallback; helper
+  output is parsed without shell evaluation. Environment tests now distinguish
+  Linux restoration from Darwin refusal, and CI runs on Ubuntu and macOS.
 - Executable paths are honored only from global bridge config. Trusted global
   config and snapshot use the passwd home, independent of inherited/cwd HOME
   and OMP agent/config/profile overrides; native-home mismatches warn.
