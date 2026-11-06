@@ -63,7 +63,11 @@ Enabling user/project Claude settings globally authorizes their hooks and
 environment configuration; disabling strict MCP globally authorizes filesystem
 MCP server commands during provider generation. Do not enable those options for
 untrusted repositories. Cloud MCP remains disabled. The CLI and SDK themselves,
-the selected executable, inherited process environment, OMP extensions, and
-tools the user authorizes remain trusted: this bridge is not an OS sandbox.
-Read-only AskClaude modes restrict model tools, not processes authorized by
-globally enabled settings/hooks.
+the selected executable, OMP extensions, and tools the user authorizes remain
+trusted: this bridge is not an OS sandbox. Discovery and generation still inherit
+OMP's current process environment, which may contain cwd dotenv values loaded
+by Bun/OMP. This change does not sanitize that environment, secure executable
+resolution through `PATH`, or prevent OMP's own project extensions from loading.
+Use a trusted launcher environment and explicit trusted executable for untrusted
+repositories. Read-only AskClaude modes restrict model tools, not processes
+authorized by globally enabled settings/hooks.
