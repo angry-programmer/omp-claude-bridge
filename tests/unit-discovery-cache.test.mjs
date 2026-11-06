@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { discoverProviderModels } from "../src/discovery.ts";
 
 const success = { queryFn: () => ({ supportedModels: async () => [{ value: "future", resolvedModel: "claude-future-6" }], close() {} }) };
@@ -85,4 +86,24 @@ test("a snapshot save failure preserves successful discovery and cleans its temp
 		assert.deepEqual(readdirSync(dir), ["catalog.json"]);
 		assert.equal(statSync(path).isDirectory(), true);
 	} finally { console.error = original; rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("snapshot reads reject symlinks, non-regular files and files over 1 MB", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "bridge-cache-"));
+	const valid = join(dir, "valid.json");
+	const link = join(dir, "link.json");
+	const large = join(dir, "large.json");
+	try {
+		const fifo = join(dir, "fifo");
+		assert.equal(spawnSync("/usr/bin/mkfifo", [fifo]).status, 0);
+		const envelope = JSON.stringify({ version: 1, savedAt: Date.now(), models: [{ value: "claude-future-6" }] });
+		writeFileSync(valid, envelope);
+		symlinkSync(valid, link);
+		writeFileSync(large, envelope + " ".repeat(1024 * 1024));
+		for (const path of [link, dir, large, fifo, "/dev/zero"]) {
+			const models = await discoverProviderModels([], failure, path);
+			assert.equal(models.some((model) => model.id === "claude-future-6"), false);
+			assert.ok(models.some((model) => model.id === "claude-opus-5-5"));
+		}
+	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

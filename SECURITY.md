@@ -45,6 +45,11 @@ closed if the lookup fails. A mismatch with the native home logs a warning.
 Windows uses its native account home. Non-object JSON becomes `{}`; malformed
 `settingSources` becomes `[]` with a warning.
 
+The last-good catalog lives beside that trusted global file. Reads refuse
+symlinks and non-regular files and are capped at 1 MB, including concurrent file
+growth. Successful discovery alone replaces the snapshot atomically with mode
+0600; failures never rewrite it.
+
 Catalog discovery is initialization-only and always uses `settingSources: []`,
 `strictMcpConfig: true`, an empty MCP server map, and disabled cloud MCP.
 Neither global nor project settings can enable filesystem settings, hooks, or
