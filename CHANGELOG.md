@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
 
+### Removed
+- Opus 4.6/4.7/4.8, Sonnet 4.6, and Fable 5 from the default catalog.
+  Explicit static configurations retain their historical routing/window policy;
+  use current exact ids for new roles. Sonnet 5 and Haiku 4.5 remain retained.
+
 ### Fixed
 - AskClaude defaults to exact `claude-opus-5-5`, not the moving `opus` alias.
 - Static/AskClaude model lookup checks exact ids before substring short names,

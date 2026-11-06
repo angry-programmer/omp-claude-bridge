@@ -176,8 +176,18 @@ const RETAINED_METADATA: readonly PiAiModel[] = [
 	},
 ];
 
-function isRetainedModel(id: string): boolean {
-	return (MODEL_IDS_IN_ORDER as readonly string[]).includes(id);
+// Routing-only: explicitly configured old versions keep their prior windows,
+// but these ids never enter buildModels()' default catalog.
+const LEGACY_ONE_M_RUNTIMES: Record<string, string> = {
+	"claude-opus-4-8": "claude-opus-4-8[1m]",
+	"claude-opus-4-7": "claude-opus-4-7",
+	"claude-opus-4-6": "claude-opus-4-6[1m]",
+	"claude-sonnet-4-6": "claude-sonnet-4-6[1m]",
+	"claude-fable-5": "claude-fable-5[1m]",
+};
+
+function hasWindowPolicy(id: string): boolean {
+	return (MODEL_IDS_IN_ORDER as readonly string[]).includes(id) || Object.hasOwn(LEGACY_ONE_M_RUNTIMES, id);
 }
 
 export function isExactModelId(id: string): boolean {
@@ -303,25 +313,26 @@ export function resolveClaudeCodeRuntimeModel(modelId: string, settings: Context
 }
 
 function resolveAutoRuntimeModel(modelId: string): ClaudeCodeRuntimeModel {
-	if (isRetainedModel(modelId)) {
+	if (hasWindowPolicy(modelId)) {
 		return modelId === "claude-haiku-4-5"
 			? { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT }
-			: { cliModelId: `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT };
+			: { cliModelId: LEGACY_ONE_M_RUNTIMES[modelId] ?? `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT };
 	}
 	console.error(`claude-bridge: encountered model ${modelId} with no known context size, defaulting to 200K`);
 	return { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
 }
 
 function resolveForcedOneMRuntimeModel(modelId: string): ClaudeCodeRuntimeModel | null {
-	if (isRetainedModel(modelId)) {
-		return modelId === "claude-haiku-4-5" ? null : { cliModelId: `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT };
+	if (hasWindowPolicy(modelId)) {
+		return modelId === "claude-haiku-4-5" ? null : { cliModelId: LEGACY_ONE_M_RUNTIMES[modelId] ?? `${modelId}[1m]`, contextWindow: ONE_M_CONTEXT };
 	}
 	console.error(`claude-bridge: encountered model ${modelId} with no known 1M runtime, hiding it`);
 	return null;
 }
 
 function resolveForcedTwoHundredKRuntimeModel(modelId: string): ClaudeCodeRuntimeModel | null {
-	if (isRetainedModel(modelId)) return { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
+	if (modelId === "claude-opus-4-7") return null;
+	if (hasWindowPolicy(modelId)) return { cliModelId: modelId, contextWindow: TWO_HUNDRED_K_CONTEXT };
 	console.error(`claude-bridge: encountered model ${modelId} with no known 200K runtime, hiding it`);
 	return null;
 }
@@ -346,12 +357,12 @@ export function setDynamicRuntimeCatalogActive(active: boolean): void {
 export function claudeCodeModelId(model: { id: string }, settings: ContextWindowSettings): string {
 	if (/\[1m\]$/i.test(model.id)) return model.id;
 	const { baseId, forced } = parseVariantId(model.id);
-	if (dynamicRuntimeCatalogActive && !isRetainedModel(baseId)) return model.id;
+	if (dynamicRuntimeCatalogActive && !hasWindowPolicy(baseId)) return model.id;
 	const runtimeModel = forced === "1m"
 		? resolveForcedOneMRuntimeModel(baseId)
 		: forced === "200k"
 			? resolveForcedTwoHundredKRuntimeModel(baseId)
-			: resolveClaudeCodeRuntimeModel(baseId, settings) ?? (isRetainedModel(baseId) ? resolveAutoRuntimeModel(baseId) : null);
+			: resolveClaudeCodeRuntimeModel(baseId, settings) ?? (hasWindowPolicy(baseId) ? resolveAutoRuntimeModel(baseId) : null);
 	if (runtimeModel == null) {
 		const requested = forced ?? settings.contextWindow;
 		throw new Error(`claude-bridge: model ${model.id} has no Claude Code runtime (contextWindow=${requested})`);
@@ -391,7 +402,7 @@ export function buildVariantModels<T extends { id: string; name: string; context
 		// Unknown model (not in the model tables): keep one default-path entry.
 		// Done before the forced-resolver probes below, which log "hiding it" on
 		// unknown ids — misleading noise for a model we actually keep.
-		if (!isRetainedModel(m.id)) {
+		if (!hasWindowPolicy(m.id)) {
 			const runtimeModel = resolveClaudeCodeRuntimeModel(m.id, settings);
 			if (runtimeModel != null) result.push({ ...m, contextWindow: runtimeModel.contextWindow, name: variantName(m.name, runtimeModel.contextWindow) });
 			continue;

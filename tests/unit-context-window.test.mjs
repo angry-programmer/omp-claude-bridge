@@ -68,3 +68,29 @@ test("variant suffixes override the configured default", () => {
 	assert.equal(claudeCodeModelId({ id: "claude-opus-5-5-200k" }, { contextWindow: "1m" }), "claude-opus-5-5");
 	assert.throws(() => claudeCodeModelId({ id: "claude-haiku-4-5-1m" }, { contextWindow: "auto" }), /no Claude Code runtime/);
 });
+
+test("explicit legacy models retain their historical windows without returning to defaults", () => {
+	const ids = ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-fable-5"];
+	for (const contextWindow of ["auto", "1m", "200k"]) {
+		const settings = { contextWindow };
+		const models = buildVariantModels(buildConfiguredModels(ids, []), settings);
+		for (const id of ids) {
+			const model = models.find((m) => m.id === id);
+			assert.equal(model.contextWindow, contextWindow === "200k" && id !== "claude-opus-4-7" ? 200_000 : 1_000_000);
+			assert.equal(claudeCodeModelId(model, settings), id === "claude-opus-4-7" || model.contextWindow === 200_000 ? id : `${id}[1m]`);
+			assert.equal(buildModels([]).some((m) => m.id === id), false);
+		}
+	}
+});
+
+test("an unknown static model uses conservative auto metadata and warns", () => {
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		const [model] = buildVariantModels(buildConfiguredModels(["claude-unknown-9"], []), { contextWindow: "auto" });
+		assert.equal(model.contextWindow, 200_000);
+		assert.equal(claudeCodeModelId(model, { contextWindow: "auto" }), "claude-unknown-9");
+		assert.ok(warnings.some((line) => line.includes("claude-unknown-9") && line.includes("no known context")));
+	} finally { console.error = original; }
+});
