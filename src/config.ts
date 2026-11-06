@@ -1,18 +1,14 @@
-// Trusted bridge config is anchored to the native account/launch home, not OMP's
-// dotenv-sensitive directory resolver. Project config may override ordinary
-// settings, but only tighten settings/MCP trust ceilings. Missing or unparseable
-// files are ignored so the extension always starts.
+// Global security policy is rooted in the account's passwd home. Project
+// configuration may only tighten trust ceilings.
 
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { ContextWindowMode } from "./models.js";
 import { CONFIG_DIR_NAME } from "@oh-my-pi/pi-utils";
 import { existsSync, readFileSync } from "fs";
-import { userInfo } from "node:os";
+import { TRUSTED_AGENT_DIR } from "./trusted-paths.js";
 import { join } from "path";
 
-// Bun loads cwd .env before application code. process.env.HOME, profile,
-// PI_CONFIG_DIR and PI_CODING_AGENT_DIR cannot identify trusted configuration.
-const TRUSTED_CONFIG_PATH = join(userInfo().homedir, ".omp", "agent", "claude-bridge.json");
+const TRUSTED_CONFIG_PATH = join(TRUSTED_AGENT_DIR, "claude-bridge.json");
 
 export interface Config {
 	askClaude?: {
@@ -51,18 +47,26 @@ export interface Config {
 export function tryParseJson(path: string): Partial<Config> {
 	if (!existsSync(path)) return {};
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
+		const value = JSON.parse(readFileSync(path, "utf-8"));
+		return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 	} catch (e) {
 		console.error(`claude-bridge: failed to parse ${path}: ${e}`);
 		return {};
 	}
 }
 
+function settingSources(value: unknown): SettingSource[] | undefined {
+	if (value === undefined) return undefined;
+	if (Array.isArray(value)) return value.filter((source): source is SettingSource => source === "user" || source === "project" || source === "local");
+	console.error("claude-bridge: settingSources must be an array; using []");
+	return [];
+}
+
 export function loadConfig(cwd: string): Config {
 	const global = tryParseJson(TRUSTED_CONFIG_PATH);
 	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
-	const trustedSources = global.provider?.settingSources ?? [];
-	const projectSources = project.provider?.settingSources;
+	const trustedSources = settingSources(global.provider?.settingSources) ?? [];
+	const projectSources = settingSources(project.provider?.settingSources);
 	if (projectSources?.some((source) => !trustedSources.includes(source))) {
 		console.error("claude-bridge: project settingSources cannot loosen the global trust policy; extra sources ignored");
 	}

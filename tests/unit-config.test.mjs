@@ -5,25 +5,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-function configuredProvider(global, project) {
+function configuredSection(global, project, section = "provider") {
 	const root = mkdtempSync(join(tmpdir(), "bridge-config-"));
 	const home = join(root, "home");
 	const agent = join(home, ".omp", "agent");
 	const cwd = join(root, "project");
 	mkdirSync(agent, { recursive: true });
 	mkdirSync(join(cwd, ".omp"), { recursive: true });
-	writeFileSync(join(agent, "claude-bridge.json"), JSON.stringify({ provider: global }));
-	writeFileSync(join(cwd, ".omp", "claude-bridge.json"), JSON.stringify({ provider: project }));
+	writeFileSync(join(agent, "claude-bridge.json"), JSON.stringify(section === null ? global : { [section]: global }));
+	writeFileSync(join(cwd, ".omp", "claude-bridge.json"), JSON.stringify(section === null ? project : { [section]: project }));
 	try {
 		const child = spawnSync(process.execPath, ["--eval", `
 			import { mock } from "bun:test";
 			const os = await import("node:os");
 			const user = os.userInfo();
 			mock.module("node:os", () => ({ ...os, userInfo: () => ({ ...user, homedir: ${JSON.stringify(home)} }) }));
+			const cp = await import("node:child_process");
+			mock.module("node:child_process", () => ({ ...cp, execFileSync: () => "test:x:" + process.getuid() + ":0::" + ${JSON.stringify(home)} + ":/bin/sh" }));
 			import { setAgentDir } from "@oh-my-pi/pi-utils";
 			setAgentDir(${JSON.stringify(agent)});
 			const { loadConfig } = await import("./src/config.ts");
-			console.log(JSON.stringify(loadConfig(${JSON.stringify(cwd)}).provider));
+			const config = loadConfig(${JSON.stringify(cwd)});
+			console.log(JSON.stringify(${JSON.stringify(section)} === null ? config : config[${JSON.stringify(section)}]));
 		`], { cwd: new URL("..", import.meta.url), encoding: "utf8" });
 		assert.equal(child.status, 0, child.stderr);
 		return { config: JSON.parse(child.stdout.trim()), warnings: child.stderr };
@@ -32,7 +35,7 @@ function configuredProvider(global, project) {
 
 test("only global config can choose the Claude executable; other project settings still override", () => {
 	for (const trusted of [undefined, "/trusted/claude"]) {
-		const { config } = configuredProvider({ pathToClaudeCodeExecutable: trusted, contextWindow: "1m" }, {
+		const { config } = configuredSection({ pathToClaudeCodeExecutable: trusted, contextWindow: "1m" }, {
 			pathToClaudeCodeExecutable: "/untrusted/claude", contextWindow: "200k", includeAliases: true,
 		});
 		assert.equal(config.pathToClaudeCodeExecutable, trusted);
@@ -42,7 +45,7 @@ test("only global config can choose the Claude executable; other project setting
 });
 
 test("project settings cannot enable settings sources or filesystem MCP by default", () => {
-	const { config, warnings } = configuredProvider({}, { settingSources: ["user", "project"], strictMcpConfig: false });
+	const { config, warnings } = configuredSection({}, { settingSources: ["user", "project"], strictMcpConfig: false });
 	assert.deepEqual(config.settingSources, []);
 	assert.equal(config.strictMcpConfig, true);
 	assert.match(warnings, /settingSources.*loosen/);
@@ -50,14 +53,14 @@ test("project settings cannot enable settings sources or filesystem MCP by defau
 });
 
 test("project settings may reduce trusted sources and enable strict MCP", () => {
-	const { config, warnings } = configuredProvider({ settingSources: ["user", "project"], strictMcpConfig: false }, { settingSources: ["user"], strictMcpConfig: true });
+	const { config, warnings } = configuredSection({ settingSources: ["user", "project"], strictMcpConfig: false }, { settingSources: ["user"], strictMcpConfig: true });
 	assert.deepEqual(config.settingSources, ["user"]);
 	assert.equal(config.strictMcpConfig, true);
 	assert.equal(warnings, "");
 });
 
 test("adding a project source keeps only globally allowed sources and warns", () => {
-	const { config, warnings } = configuredProvider({ settingSources: ["user"], strictMcpConfig: true }, { settingSources: ["user", "project"], strictMcpConfig: false });
+	const { config, warnings } = configuredSection({ settingSources: ["user"], strictMcpConfig: true }, { settingSources: ["user", "project"], strictMcpConfig: false });
 	assert.deepEqual(config.settingSources, ["user"]);
 	assert.equal(config.strictMcpConfig, true);
 	assert.match(warnings, /settingSources.*loosen/);
@@ -81,6 +84,8 @@ test("Bun cwd dotenv can move OMP agent data but cannot redirect trusted bridge 
 			const os = await import("node:os");
 			const user = os.userInfo();
 			mock.module("node:os", () => ({ ...os, userInfo: () => ({ ...user, homedir: ${JSON.stringify(home)} }) }));
+			const cp = await import("node:child_process");
+			mock.module("node:child_process", () => ({ ...cp, execFileSync: () => "test:x:" + process.getuid() + ":0::" + ${JSON.stringify(home)} + ":/bin/sh" }));
 			const { getAgentDir } = await import(${JSON.stringify(new URL("../node_modules/@oh-my-pi/pi-utils/src/dirs.ts", import.meta.url).pathname)});
 			const { loadConfig } = await import(${JSON.stringify(new URL("../src/config.ts", import.meta.url).pathname)});
 			console.log(JSON.stringify({ agent: getAgentDir(), config: loadConfig(process.cwd()).provider }));
@@ -111,4 +116,27 @@ test("installed Bun cannot use dotenv HOME through userInfo to choose trusted co
 		assert.equal(child.status, 0, child.stderr);
 		assert.notEqual(JSON.parse(child.stdout.trim()).pathToClaudeCodeExecutable, executable);
 	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("non-object config and non-array sources fail closed without disabling the bridge", () => {
+	for (const value of [null, [], "project", 42]) {
+		const { config } = configuredSection(value, value, null);
+		assert.deepEqual(config.provider.settingSources, []);
+		assert.equal(config.provider.strictMcpConfig, true);
+	}
+	for (const value of ["project", null, {}]) {
+		const { config, warnings } = configuredSection({ settingSources: ["user"] }, { settingSources: value });
+		assert.deepEqual(config.settingSources, []);
+		assert.match(warnings, /settingSources.*array/);
+	}
+});
+
+test("inherited HOME cannot replace the passwd home and emits a mismatch warning", () => {
+	const child = spawnSync(process.execPath, ["--eval", `
+		const { TRUSTED_AGENT_DIR } = await import("./src/trusted-paths.ts");
+		console.log(TRUSTED_AGENT_DIR);
+	`], { cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...process.env, HOME: "/untrusted-home" } });
+	assert.equal(child.status, 0, child.stderr);
+	assert.notEqual(child.stdout.trim(), "/untrusted-home/.omp/agent");
+	assert.match(child.stderr, /home.*passwd.*using passwd/i);
 });
