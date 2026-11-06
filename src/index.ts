@@ -1,6 +1,6 @@
 import { StringEnum, Type, getModels, type AssistantMessage, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions, type Tool, type Usage } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-ai-shim";
 import * as piAi from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-ai-shim";
-import { buildSessionContext, keyHint, Text, type CompactionEntry, type ExtensionAPI, type ExtensionUIContext } from "@oh-my-pi/pi-coding-agent";
+import { buildSessionContext, keyHint, settings, Text, type CompactionEntry, type ExtensionAPI, type ExtensionUIContext } from "@oh-my-pi/pi-coding-agent";
 import { compact } from "@oh-my-pi/pi-agent-core/compaction";
 import { createSdkMcpServer, query, type SDKMessage, type SDKUserMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
@@ -11,13 +11,14 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
-import { discoverClaudeModels } from "./discovery.js";
+import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, routeClaudeEffort, setDynamicRuntimeCatalogActive, warnConfiguredAlias, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
+import { discoverProviderModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
 import { QueryContext, ctx } from "./query-state.js";
 import { loadConfig, type Config } from "./config.js";
+import { buildClaudeEnv } from "./child-env.js";
 import { extractAgentsAppend } from "./agents-md.js";
 import { jsonSchemaToZodShape } from "./typebox-to-zod.js";
 import { buildActionSummary, type ToolCallState } from "./askclaude-ui.js";
@@ -124,6 +125,12 @@ function resolveModel(input: string) {
 		return dynamicModels.find((model) => model.id.toLowerCase() === lower);
 	}
 	return _resolveModel(configuredModels, input);
+}
+
+function resolveAskClaudeModel(requestedModel = "claude-opus-5-5") {
+	const model = resolveModel(requestedModel);
+	const modelId = model?.id ?? requestedModel;
+	return { modelId, cliModel: claudeCodeModelId(model ?? { id: modelId }, contextWindowSettings) };
 }
 
 // --- Error handling ---
@@ -388,7 +395,8 @@ async function runIsolatedSummary(
 	try {
 		const promptText = extractIsolatedSummaryPrompt(context.messages);
 		const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
-		const claudeExecutable = loadConfig(cwd).provider?.pathToClaudeCodeExecutable;
+		const config = loadConfig(cwd).provider;
+		const claudeExecutable = config?.pathToClaudeCodeExecutable;
 		const cliModel = claudeCodeModelId(model, contextWindowSettings);
 		debug(`compact summary: spawn model=${cliModel} registeredModel=${model.id} promptLen=${promptText.length}`);
 
@@ -396,7 +404,7 @@ async function runIsolatedSummary(
 			prompt: promptText,
 			options: {
 				cwd,
-				env: { ...process.env, DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
+				env: buildClaudeEnv("summary", { cwd, trustedEnv: config?.trustedEnv }),
 				tools: [],
 				strictMcpConfig: true,
 				settingSources: [] as SettingSource[],
@@ -705,6 +713,7 @@ export const __test = {
 	syncSharedSession,
 	recordSessionCompletion,
 	recordToolResultCursor,
+	resolveAskClaudeModel,
 };
 
 // --- Provider helpers: tool name mapping ---
@@ -1295,14 +1304,9 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	const appendParts = [agentsAppend, skillsAppend].filter((part): part is string => Boolean(part));
 	const systemPromptAppend = appendParts.length > 0 ? appendParts.join("\n\n") : undefined;
 
-	// MCP auto-loading suppression: CC reads MCP servers from ~/.claude.json (top-level
-	// + per-project) and .mcp.json. Since pi executes tools (not CC), those are pure
-	// token overhead. --strict-mcp-config tells the binary to use ONLY mcpServers passed
-	// programmatically and ignore filesystem MCP entries — applied unconditionally because
-	// settingSources=undefined does NOT give isolation (the CC default loads all sources).
-	const settingSources: SettingSource[] | undefined = appendSystemPrompt
-		? undefined
-		: providerSettings.settingSources ?? ["user", "project"];
+	// Only trusted global settings may enable filesystem settings/MCP. Project
+	// config can tighten that ceiling; appendSystemPrompt never bypasses it.
+	const settingSources = providerSettings.settingSources ?? [];
 	const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 	const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -1327,7 +1331,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	// also autocompact would double-flush the prompt cache and races pi's
 	// threshold with CC's, including CC's anti-thrashing guard (issue #8).
 	// Manual /compact in CC still works (we never invoke it).
-	const childEnv = { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" };
+	const childEnv = buildClaudeEnv("generation", { cwd, trustedEnv: providerSettings.trustedEnv });
 	const queryOptions: NonNullable<Parameters<typeof query>[0]["options"]> = {
 		cwd,
 		env: childEnv,
@@ -1340,7 +1344,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 		},
 		extraArgs,
 		...(effort ? { effort } : {}),
-		...(settingSources ? { settingSources } : {}),
+		settingSources,
 		...(mcpServers ? { mcpServers } : {}),
 		...(resumeSessionId ? { resume: resumeSessionId } : {}),
 		...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
@@ -1521,10 +1525,7 @@ async function promptAndWait(
 	},
 ): Promise<{ responseText: string; stopReason: string }> {
 	const cwd = process.cwd();
-	const requestedModel = options?.model ?? "opus";
-	const model = resolveModel(requestedModel);
-	const modelId = model?.id ?? requestedModel;
-	const cliModel = model ? claudeCodeModelId(model, contextWindowSettings) : modelId;
+	const { modelId, cliModel } = resolveAskClaudeModel(options?.model);
 	// Session resume for shared mode — synchronize this runtime's AskClaude
 	// session against its context before deciding whether to resume. Provider
 	// stream state is intentionally not consulted here: the stream callback can
@@ -1562,14 +1563,14 @@ async function promptAndWait(
 		prompt,
 		options: {
 			cwd,
-			env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" },
+			env: buildClaudeEnv("generation", { cwd, trustedEnv: providerSettings.trustedEnv }),
 			permissionMode: "bypassPermissions",
 			...(disallowedTools.length ? { disallowedTools } : {}),
 			...(effort ? { effort } : {}),
 			systemPrompt: skillsBlock
 				? { type: "preset", preset: "claude_code", append: skillsBlock }
 				: undefined,
-			settingSources: ["user", "project"] as SettingSource[],
+			settingSources: providerSettings.settingSources ?? [],
 			extraArgs,
 			...(resumeSessionId ? { resume: resumeSessionId } : {}),
 			...(options?.isolated ? { persistSession: false } : {}),
@@ -1708,8 +1709,21 @@ export default function (pi: ExtensionAPI) {
 	usingStaticModelConfig = explicitModelIds.length > 0;
 	setDynamicRuntimeCatalogActive(!usingStaticModelConfig);
 	configuredModels = usingStaticModelConfig
-		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic")), contextWindowSettings)
+		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic"), providerSettings), contextWindowSettings)
 		: [];
+	if (providerSettings.includeAliases !== true) {
+		try {
+			for (const selector of Object.values(settings.getModelRoles())) {
+				if (typeof selector !== "string") continue;
+				for (const match of selector.matchAll(/\bclaude-bridge\/([a-z0-9._-]+(?:\[1m\])?)/gi)) {
+					warnConfiguredAlias(match[1]);
+				}
+			}
+		} catch (error) {
+			// Standalone extension hosts may not initialize OMP's settings singleton.
+			debug("configured alias hints unavailable:", error);
+		}
+	}
 	// OMP owns providerSessionState maps and closes their entries with the
 	// owning session. AskClaude does not receive that map from tool execution,
 	// so keep its optional shared-mode resume record inside this runtime's
@@ -1774,12 +1788,13 @@ export default function (pi: ExtensionAPI) {
 	// --- Provider ---
 
 	const fetchDynamicModels = async (_apiKey: string | undefined) => {
-		const discovered = await discoverClaudeModels({
-			cwd: process.cwd(),
+		const projected = await discoverProviderModels(getModels("anthropic"), {
 			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
-			settingSources: providerSettings.settingSources,
+			trustedEnv: providerSettings.trustedEnv,
+			includeAliases: providerSettings.includeAliases,
+			contextWindow: contextWindowSettings.contextWindow,
+			cwd: process.cwd(),
 		});
-		const projected = projectSupportedModels(discovered, getModels("anthropic"));
 		dynamicModels = projected.map((model) => ({ id: model.id }));
 		return projected;
 	};
@@ -1797,7 +1812,7 @@ export default function (pi: ExtensionAPI) {
 
 	const askConf = config.askClaude;
 	const allowFull = askConf?.allowFullMode !== false;
-	const defaultMode = askConf?.defaultMode ?? "read";
+	const defaultMode = askConf?.defaultMode === "full" && !allowFull ? "read" : askConf?.defaultMode ?? "read";
 	const defaultIsolated = askConf?.defaultIsolated ?? false;
 	askClaudeToolName = askConf?.name ?? "AskClaude";
 
@@ -1820,6 +1835,7 @@ export default function (pi: ExtensionAPI) {
 			return { prompt: "" };
 		}
 		const parsed: AskClaudeToolParams = { prompt: value.prompt };
+		if ("mode" in value && value.mode === "full" && !allowFull) throw new Error("AskClaude full mode is disabled by bridge policy");
 		if ("mode" in value && (value.mode === "full" || value.mode === "read" || value.mode === "none")) parsed.mode = value.mode;
 		if ("model" in value && typeof value.model === "string") parsed.model = value.model;
 		if ("thinking" in value && typeof value.thinking === "string") {
@@ -1837,7 +1853,7 @@ export default function (pi: ExtensionAPI) {
 		const askClaudeParams = Type.Object({
 			prompt: Type.String({ description: "The question or task for Claude Code. By default Claude sees the full conversation history. Don't research up front, let Claude explore." }),
 			mode: Type.Optional(StringEnum(modeValues, { description: modeDesc })),
-			model: Type.Optional(Type.String({ description: 'Claude model (e.g. "opus", "sonnet", "haiku", or full ID). Defaults to "opus".' })),
+			model: Type.Optional(Type.String({ description: 'Claude model id. Defaults to exact "claude-opus-5-5"; aliases require explicit caller selection.' })),
 			thinking: Type.Optional(StringEnum(["off", ...CLAUDE_EFFORT_LEVELS] as const, { description: "Thinking effort level. Omit to use Claude Code's default. Supported names are low, medium, high, xhigh, and max." })),
 			isolated: Type.Optional(Type.Boolean({ description: "When true, Claude sees only this prompt (clean session). When false (default), Claude sees the full conversation history." })),
 		});

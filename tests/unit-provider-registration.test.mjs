@@ -108,3 +108,13 @@ test("rebuilds after a shortened rewritten history instead of preserving stale C
 		rmSync(configDir, { recursive: true, force: true });
 	}
 });
+
+test("AskClaude defaults to exact Opus 5.5 before discovery", () => {
+	assert.equal(__test.resolveAskClaudeModel().modelId, "claude-opus-5-5");
+	assert.match(__test.resolveAskClaudeModel().cliModel, /^claude-opus-5-5(?:\[1m\])?$/);
+	assert.equal(__test.resolveAskClaudeModel("claude-sonnet-5").modelId, "claude-sonnet-5");
+});
+
+test("AskClaude rejects unsupported variants even when absent from the catalog", () => {
+	assert.throws(() => __test.resolveAskClaudeModel("claude-future-6-200k"), /unsupported window variant/);
+});

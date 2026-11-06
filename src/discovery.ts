@@ -2,8 +2,14 @@ import {
 	query as sdkQuery,
 	type ModelInfo,
 	type Query,
-	type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
+import { projectSupportedModels, type ContextWindowMode } from "./models.js";
+import { TRUSTED_AGENT_DIR } from "./trusted-paths.js";
+import { readJsonFile } from "./read-json-file.js";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { buildClaudeEnv } from "./child-env.js";
 
 /** OMP aborts runtime provider discovery at 15 seconds; finish first. */
 export const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -13,7 +19,7 @@ type QueryFactory = (params: Parameters<typeof sdkQuery>[0]) => Query;
 export type ClaudeModelDiscoveryOptions = {
 	cwd?: string;
 	pathToClaudeCodeExecutable?: string;
-	settingSources?: SettingSource[];
+	trustedEnv?: string[];
 	timeoutMs?: number;
 	queryFn?: QueryFactory;
 };
@@ -45,12 +51,8 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 			mcpServers: {},
 			persistSession: false,
 			permissionMode: "dontAsk",
-			settingSources: options.settingSources ?? ["user", "project"],
-			env: {
-				...process.env,
-				CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-				ENABLE_CLAUDEAI_MCP_SERVERS: "0",
-			},
+			settingSources: [],
+			env: buildClaudeEnv("discovery", { cwd, trustedEnv: options.trustedEnv }),
 			...(options.pathToClaudeCodeExecutable
 				? { pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable }
 			: {}),
@@ -68,4 +70,47 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 			// Preserve the discovery failure (if any); close is best effort.
 		}
 	}
+}
+
+/** Provider catalog boundary: discovery is optional; retained exact ids are not. */
+export async function discoverProviderModels(
+	piAiModels: Parameters<typeof projectSupportedModels>[1] = [],
+	options: ClaudeModelDiscoveryOptions & { includeAliases?: boolean; contextWindow?: ContextWindowMode } = {},
+	cacheFile = join(TRUSTED_AGENT_DIR, "claude-bridge-models.json"),
+) {
+	let supported: ModelInfo[];
+	try {
+		supported = await discoverClaudeModels(options);
+	} catch (error) {
+		let models;
+		let source = "retained exact catalog";
+		try {
+			const saved = readJsonFile(cacheFile) as { version?: unknown; savedAt?: unknown; models?: unknown };
+			if (saved?.version !== 1 || typeof saved.savedAt !== "number" ||
+				!Number.isFinite(saved.savedAt) || saved.savedAt <= 0 || saved.savedAt > Date.now() ||
+				!Array.isArray(saved.models) || saved.models.length === 0 ||
+				!saved.models.every((entry: unknown) => entry !== null && typeof entry === "object" && "value" in entry && typeof entry.value === "string")) {
+				throw new Error("Invalid bridge model cache");
+			}
+			models = projectSupportedModels(saved.models, piAiModels, options);
+			source = `last-good exact catalog (age ${Math.floor((Date.now() - saved.savedAt) / 1000)}s)`;
+		} catch {
+			models = projectSupportedModels([], piAiModels, { contextWindow: options.contextWindow });
+		}
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`claude-bridge: model discovery failed; using ${source}: ${message}`);
+		return models;
+	}
+	const models = projectSupportedModels(supported, piAiModels, options);
+	const temporary = `${cacheFile}.${randomUUID()}.tmp`;
+	try {
+		await mkdir(dirname(cacheFile), { recursive: true, mode: 0o700 });
+		await writeFile(temporary, JSON.stringify({ version: 1, savedAt: Date.now(), models: supported }), { mode: 0o600 });
+		await rename(temporary, cacheFile);
+	} catch (error) {
+		console.error(`claude-bridge: could not save last-good model catalog: ${error}`);
+	} finally {
+		await rm(temporary, { force: true }).catch(() => {});
+	}
+	return models;
 }

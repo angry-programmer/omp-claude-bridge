@@ -4,25 +4,94 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.2] - 2026-11-06
 
 ### Added
+- Exact-only catalogs by default; `provider.includeAliases: true` opts into
+  non-versioned SDK aliases, including aliases in explicit static lists.
+- Hidden aliases referenced by static bridge config or OMP model roles log one
+  migration hint per alias, including on warm-cache startup. Targets derive
+  from the retained release list; unconfigured SDK aliases produce no warning.
 - Runtime model discovery through the official Claude Agent SDK
-  `supportedModels()` catalog. SDK family aliases route unchanged to Claude
-  Code's latest model, while retained versioned selectors such as
-  `claude-opus-4-8` remain independently selectable and route exactly.
+  `supportedModels()` catalog. Exact SDK selectors join retained current
+  versions; family aliases are available only with explicit opt-in.
 - `provider.models` as an explicit static override for installations that
   need the legacy context-window variants.
 
 ### Changed
 - Dynamic catalogs use OMP's `fetchDynamicModels` SQLite cache (24-hour TTL).
-  Discovery failures now throw so OMP can retain the last good catalog instead
-  of replacing it with an invented fallback.
+  Failed discovery warns and reuses a bridge-owned last-good snapshot
+  before the retained table. Only successful SDK discovery writes the snapshot.
+  Retained explicit `[1m]` selectors also remain resolvable in cold fallback.
+- Last-good snapshots have a checked version/timestamp envelope; discovery
+  failure warnings report snapshot age. Snapshot permissions and save-error
+  recovery/temporary-file cleanup have regression coverage.
+- Explicit `[1m]` picker entries use `(1M, explicit)` labels, distinct from base
+  1M entries without changing their exact routing.
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
+- Verified base, `-200k`, and `[1m]` selector generation for all four current
+  releases. `-200k` sets OMP's compaction threshold; Claude Code 2.1.317
+  still reports native 1M context for the bare runtime selector.
+
+### Removed
+- Opus 4.6/4.7/4.8, Sonnet 4.6, and Fable 5 from the default catalog.
+  Explicit static configurations retain their historical routing/window policy;
+  use current exact ids for new roles. Sonnet 5 and Haiku 4.5 remain retained.
 
 ### Fixed
+- Discovery never loads filesystem Claude settings. Generation settings/MCP trust
+  is global-only: project config may tighten but never loosen it; attempted
+  loosening warns. Generation defaults to no settings sources and strict MCP.
+- AskClaude enabled/full-mode ceilings and tool identity cannot be loosened by
+  project config. Unauthorized or malformed defaults become read mode; explicit
+  unauthorized full-mode execution is rejected.
+- Every Claude subprocess starts from OMP's provenance-filtered child environment,
+  removing project dotenv additions regardless of name under OMP's parser.
+  Bridge/child cwd dotenv reads are bounded, regular-file-only and no-follow
+  where supported; OMP receives private snapshots to avoid an unbounded reread
+  of mutable source paths. Invalid NODE_ENV modes are rejected before probing.
+  A second denylist covers endpoint/auth/proxy, native and JS loaders, shell
+  startup, Git, telemetry and TLS overrides. Launcher and global trustedEnv
+  exceptions use only filtered values and same-name dotenv matches; unrelated
+  value collisions no longer discard trusted proxies or ordinary variables.
+  Missing PATH warns and falls back to launcher/system PATH. Logging contains
+  names only; SECURITY.md documents parser and platform limits.
+- Darwin keeps fail-closed launcher provenance, but a lost PATH now comes from
+  `/usr/libexec/path_helper -s` with an empty environment rather than a fixed
+  list. System-configured Homebrew/custom entries survive fallback; helper
+  output is parsed without shell evaluation. Environment tests now distinguish
+  Linux restoration from Darwin refusal, and CI runs on Ubuntu and macOS.
+- Executable paths are honored only from global bridge config. Trusted global
+  config and snapshot use the passwd home, independent of inherited/cwd HOME
+  and OMP agent/config/profile overrides; native-home mismatches warn.
+- Failed passwd lookup now reports a bridge-specific reason and refuses startup,
+  without falling back to HOME or logging raw lookup output. Documented migration
+  for custom-HOME Claude credentials and trusted global policy.
+- Non-object config becomes empty; non-array settings sources become empty and
+  warn. Global/project config and snapshots share regular-file-only,
+  1-MB-capped reads. Config parse failures never log input contents. Global
+  read failures other than a missing file now disable AskClaude/full mode,
+  enforce empty settings sources and strict MCP, and ignore project overrides.
+  Protected uid/root-owned global symlink targets support dotfile managers;
+  project config and snapshots remain no-follow where the OS supports it.
+- Committed subprocess regression exercises real config on provider and AskClaude
+  generation with both system-prompt append settings.
+- Discovery receives only its named provider options, never arbitrary project
+  JSON keys such as the internal query function or timeout override.
+- Moving `-latest` selectors are excluded even with alias opt-in and rejected
+  by direct routing; use a versioned exact id.
+- Unsupported bridge window suffixes fail clearly before reaching Claude Code,
+  including unresolved selectors supplied directly to AskClaude.
+- AskClaude defaults to exact `claude-opus-5-5`, not the moving `opus` alias.
+- Static/AskClaude model lookup checks exact ids before substring short names,
+  so selecting Sonnet 5 never selects an earlier-listed Sonnet 5.5 instead.
+- Retained Opus/Sonnet/Haiku 5.5 and Fable 5.1 metadata: 1M defaults,
+  200K variants, 128,000 output tokens, and native adaptive-thinking efforts.
+  Static mode recognizes these ids without unknown-context warnings.
+- Removed obsolete default retained ids; Sonnet 5 and Haiku 4.5 remain for
+  configured legacy roles. Dynamic retained entries now share window variants.
 - Dynamic SDK selectors now inherit matched OMP context metadata, including
   canonical 1M values, without an unconditional 200K cap. Unknown selectors
   remain conservative 128K, while explicit `[1m]` selectors stay at 1M.

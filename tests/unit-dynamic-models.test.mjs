@@ -1,178 +1,88 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-
-import {
-	MODEL_IDS_IN_ORDER,
-	buildConfiguredModels,
-	buildVariantModels,
-	claudeCodeModelId,
-	projectSupportedModels,
-	routeClaudeEffort,
-	setDynamicRuntimeCatalogActive,
-} from "../src/models.ts";
-import { discoverClaudeModels } from "../src/discovery.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, resolveModel, routeClaudeEffort, setDynamicRuntimeCatalogActive } from "../src/models.ts";
+import { discoverClaudeModels, discoverProviderModels } from "../src/discovery.ts";
 
 const SETTINGS = { contextWindow: "auto" };
+const PI_MODELS = [{
+	id: "claude-future-6", name: "Claude Future 6", reasoning: true,
+	input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 128_000,
+	cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+	thinking: { mode: "anthropic-adaptive", efforts: ["low", "high", "xhigh"], effortMap: { xhigh: "max" } },
+}];
 
-const PI_MODELS = [
-	{
-		id: "claude-fable-5",
-		name: "Claude Fable 5",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
-		thinking: { mode: "anthropic-adaptive", efforts: ["low", "high", "xhigh"], effortMap: { xhigh: "max" } },
-	},
-	{
-		id: "claude-opus-4-8",
-		name: "Claude Opus 4.8",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
-		thinking: { mode: "anthropic-adaptive", efforts: ["low", "high", "xhigh"], effortMap: { xhigh: "max" } },
-	},
-	{
-		id: "claude-sonnet-5",
-		name: "Claude Sonnet 5",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
-		thinking: { mode: "anthropic-adaptive", efforts: ["low", "medium", "high", "xhigh"] },
-	},
-];
-
-test("combines retained versions with exact latest-family SDK aliases", () => {
+test("hides aliases but exposes unique exact SDK resolutions by default", () => {
 	const models = projectSupportedModels([
-		{ value: "default", displayName: "Default" },
-		{ value: "claude-opus-4-8", displayName: "Duplicate explicit version" },
-		{ value: "opus", resolvedModel: "claude-opus-4-8", displayName: "Opus", supportedEffortLevels: ["low", "high", "xhigh", "max"] },
-		{ value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
-		{ value: "fable", resolvedModel: "claude-fable-5", displayName: "Fable", supportedEffortLevels: ["low", "high", "max"] },
-		{ value: "claude-fable-5-1[1m]", displayName: "Fable 5.1", supportedEffortLevels: ["low", "high"] },
-	], PI_MODELS);
-	assert.deepEqual(models.slice(0, MODEL_IDS_IN_ORDER.length).map((model) => model.id), [...MODEL_IDS_IN_ORDER]);
-	assert.deepEqual(models.slice(MODEL_IDS_IN_ORDER.length).map((model) => model.id), [
-		"default",
-		"opus",
-		"sonnet",
-		"fable",
-		"claude-fable-5-1[1m]",
+		{ value: "opus", resolvedModel: "claude-opus-5-5" },
+		{ value: "sonnet", resolvedModel: "claude-sonnet-5-5" },
+		{ value: "haiku", resolvedModel: "claude-haiku-5-5" },
+		{ value: "default" },
+		{ value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" },
 	]);
-	assert.equal(models.find((model) => model.id === "claude-opus-4-8").name, "Claude Opus 4.8");
-	assert.equal(models.find((model) => model.id === "opus").name, "Opus");
-	assert.equal(models.find((model) => model.id === "opus").contextWindow, 1_000_000);
-	assert.equal(models.find((model) => model.id === "sonnet").contextWindow, 1_000_000);
-	assert.equal(models.find((model) => model.id === "fable").contextWindow, 1_000_000);
-	assert.equal(models.find((model) => model.id === "claude-fable-5-1[1m]").contextWindow, 1_000_000);
-});
-
-test("exposes newly resolved SDK models with canonical metadata without a hardcoded release entry", () => {
-	const opus55 = {
-		id: "claude-opus-5-5",
-		name: "Claude Opus 5.5",
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
-		thinking: { mode: "anthropic-adaptive", efforts: ["low", "medium", "high", "xhigh"] },
-	};
-	const models = projectSupportedModels([
-		{
-			value: "default",
-			resolvedModel: "claude-opus-5-5[1m]",
-			displayName: "Default (recommended)",
-			supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
-			supportsAdaptiveThinking: true,
-		},
-		{
-			value: "opus[1m]",
-			resolvedModel: "claude-opus-5-5[1m]",
-			displayName: "Opus (1M context)",
-			supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
-			supportsAdaptiveThinking: true,
-		},
-	], [...PI_MODELS, opus55]);
-
-	for (const id of ["default", "opus[1m]", "claude-opus-5-5[1m]"]) {
-		const model = models.find((entry) => entry.id === id);
-		assert.ok(model, `${id} should be selectable`);
-		assert.equal(model.contextWindow, 1_000_000);
-		assert.equal(model.maxTokens, 128_000);
-		assert.deepEqual(model.input, ["text", "image"]);
+	for (const alias of ["opus", "sonnet", "haiku", "default", "opus[1m]"]) {
+		assert.equal(models.some((model) => model.id === alias), false);
 	}
-	assert.equal(models.filter((model) => model.id === "claude-opus-5-5[1m]").length, 1);
-});
-
-test("keeps a unique resolved selector when its SDK alias is already retained", () => {
-	const models = projectSupportedModels([
-		{ value: "claude-opus-4-8", resolvedModel: "claude-opus-4-8[1m]" },
-	], PI_MODELS);
-
-	assert.ok(models.some((model) => model.id === "claude-opus-4-8[1m]"));
-});
-
-test("falls back to canonical thinking metadata when SDK capabilities are omitted", () => {
-	const opus55 = {
-		id: "claude-opus-5-5",
-		name: "Claude Opus 5.5",
-		reasoning: true,
-		input: ["text", "image"],
-		contextWindow: 1_000_000,
-		maxTokens: 128_000,
-		thinking: {
-			mode: "anthropic-adaptive",
-			efforts: ["low", "medium", "high", "xhigh"],
-			effortMap: { xhigh: "max" },
-		},
-	};
-	const models = projectSupportedModels([
-		{ value: "latest-opus", resolvedModel: "claude-opus-5-5[1m]" },
-	], [...PI_MODELS, opus55]);
-
-	for (const id of ["latest-opus", "claude-opus-5-5[1m]"]) {
-		const model = models.find((entry) => entry.id === id);
-		assert.equal(model.reasoning, true);
-		assert.deepEqual(model.thinking.efforts, ["low", "medium", "high", "xhigh"]);
-		assert.equal(model.thinking.effortMap, undefined);
+	for (const id of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5[1m]"]) {
+		assert.equal(models.filter((model) => model.id === id).length, 1);
 	}
 });
 
-test("bare SDK selectors inherit matched canonical metadata and explicit [1m] stays 1M", () => {
-	const metadata = [{ ...PI_MODELS[0], contextWindow: 1_000_000 }];
+test("only includes aliases with explicit opt-in and enriches them from resolved metadata", () => {
 	const models = projectSupportedModels([
-		{ value: "fable", resolvedModel: "claude-fable-5" },
-		{ value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5" },
-	], metadata);
-	assert.equal(models.find((model) => model.id === "fable").contextWindow, 1_000_000);
-	assert.equal(models.find((model) => model.id === "claude-fable-5[1m]").contextWindow, 1_000_000);
+		{ value: "sonnet", resolvedModel: "claude-sonnet-5-5" },
+	], [], { includeAliases: true });
+	const alias = models.find((model) => model.id === "sonnet");
+	assert.equal(alias.contextWindow, 1_000_000);
+	assert.equal(alias.maxTokens, 128_000);
+	assert.ok(models.some((model) => model.id === "claude-sonnet-5-5"));
 });
 
-test("preserves exact OMP-supported effort names without applying effort maps", () => {
+test("static lists hide aliases unless explicitly enabled", () => {
+	assert.deepEqual(buildConfiguredModels(["sonnet", "claude-sonnet-5"], []).map((m) => m.id), ["claude-sonnet-5"]);
+	assert.deepEqual(buildConfiguredModels(["sonnet"], [], { includeAliases: true }).map((m) => m.id), ["sonnet"]);
+});
+
+test("new SDK versions use canonical metadata without a retained release entry", () => {
 	const models = projectSupportedModels([
-		{ value: "opus", supportedEffortLevels: ["low", "xhigh", "max"] },
-		{ value: "max-only", supportsEffort: true, supportedEffortLevels: ["max"] },
+		{ value: "latest", resolvedModel: "claude-future-6[1m]", supportedEffortLevels: ["low", "xhigh", "max"], supportsAdaptiveThinking: true },
+		{ value: "claude-future-6[1m]", resolvedModel: "claude-future-6[1m]" },
 	], PI_MODELS);
-	assert.deepEqual(models.find((model) => model.id === "opus").thinking.efforts, ["low", "xhigh"]);
-	assert.equal(models.find((model) => model.id === "max-only").thinking, undefined);
-	const retained = models.find((model) => model.id === "claude-opus-4-8");
-	assert.deepEqual(retained.thinking.efforts, ["low", "high", "xhigh"]);
-	assert.equal(retained.thinking.effortMap, undefined);
+	const model = models.find((m) => m.id === "claude-future-6[1m]");
+	assert.equal(models.filter((m) => m.id === model.id).length, 1);
+	assert.equal(model.contextWindow, 1_000_000);
+	assert.equal(model.maxTokens, 128_000);
+	assert.deepEqual(model.input, ["text", "image"]);
+	assert.deepEqual(model.thinking.efforts, ["low", "xhigh"]);
+	assert.equal(model.thinking.effortMap, undefined);
+});
+
+test("uses canonical thinking metadata when SDK capabilities are omitted", () => {
+	const models = projectSupportedModels([{ value: "claude-future-6" }], PI_MODELS);
+	const model = models.find((m) => m.id === "claude-future-6");
+	assert.equal(model.reasoning, true);
+	assert.deepEqual(model.thinking.efforts, ["low", "high", "xhigh"]);
+	assert.equal(model.thinking.effortMap, undefined);
+});
+
+test("preserves OMP-supported effort names and respects SDK no-thinking capability", () => {
+	const models = projectSupportedModels([
+		{ value: "claude-future-6", supportedEffortLevels: ["low", "xhigh", "max"] },
+		{ value: "claude-future-7", supportsEffort: true, supportedEffortLevels: ["max"] },
+	], PI_MODELS);
+	assert.deepEqual(models.find((model) => model.id === "claude-future-6").thinking.efforts, ["low", "xhigh"]);
+	assert.equal(models.find((model) => model.id === "claude-future-7").thinking, undefined);
 	assert.equal(routeClaudeEffort("xhigh"), "xhigh");
 	assert.equal(routeClaudeEffort("max"), "max");
-	assert.throws(() => routeClaudeEffort("minimal"), /unsupported effort level "minimal"/);
+	assert.throws(() => routeClaudeEffort("minimal"), /unsupported effort level/);
 });
 
-test("dynamic routing keeps aliases and retained versions exact", () => {
+test("dynamic routing preserves aliases and unknown exact selectors", () => {
 	setDynamicRuntimeCatalogActive(true);
 	try {
-		for (const id of ["opus", "sonnet", "fable", "claude-opus-4-8", "claude-sonnet-5", "claude-fable-5"]) {
+		for (const id of ["opus", "sonnet", "haiku", "claude-future-6"]) {
 			assert.equal(claudeCodeModelId({ id }, SETTINGS), id);
 		}
 	} finally {
@@ -180,84 +90,147 @@ test("dynamic routing keeps aliases and retained versions exact", () => {
 	}
 });
 
-test("unknown runtime entries use conservative metadata without inventing ids", () => {
-	const models = projectSupportedModels([{ value: "future-model", displayName: "Future" }]);
-	const model = models.find((entry) => entry.id === "future-model");
-	assert.equal(model.id, "future-model");
+test("unknown exact runtime entries use conservative metadata", () => {
+	const models = projectSupportedModels([{ value: "claude-future-7", displayName: "Future" }]);
+	const model = models.find((entry) => entry.id === "claude-future-7");
 	assert.equal(model.contextWindow, 128_000);
 	assert.equal(model.maxTokens, 16_384);
 	assert.deepEqual(model.input, ["text"]);
-	assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 });
 
-test("discovery disables filesystem and cloud MCP initialization", async () => {
-	let queryParams;
+test("empty SDK catalogs reject instead of becoming a successful empty discovery", async () => {
 	let closed = false;
-	const models = await discoverClaudeModels({
-		queryFn: (params) => {
-			queryParams = params;
-			return {
-				supportedModels: async () => [{ value: "default", displayName: "Default" }],
-				close: () => { closed = true; },
-			};
-		},
-	});
-	assert.equal(queryParams.options.strictMcpConfig, true);
-	assert.deepEqual(queryParams.options.mcpServers, {});
-	assert.equal(queryParams.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
-	assert.equal(closed, true);
-	assert.equal(models[0].value, "default");
-});
-
-test("empty SDK catalogs reject so OMP can retain its last good cache", async () => {
-	let closed = false;
-	await assert.rejects(
-		discoverClaudeModels({
-			queryFn: () => ({
-				supportedModels: async () => [],
-				close: () => { closed = true; },
-			}),
-		}),
-		/empty catalog/,
-	);
+	await assert.rejects(discoverClaudeModels({
+		queryFn: () => ({ supportedModels: async () => [], close: () => { closed = true; } }),
+	}), /empty catalog/);
 	assert.equal(closed, true);
 });
 
 test("initialization-only discovery closes on timeout and SDK failure", async () => {
 	let timeoutClosed = false;
-	const hangingQuery = {
-		supportedModels: () => new Promise(() => {}),
-		close: () => { timeoutClosed = true; },
-	};
-	await assert.rejects(
-		discoverClaudeModels({ timeoutMs: 5, queryFn: () => hangingQuery }),
-		/ timed out after 5ms$/,
-	);
+	await assert.rejects(discoverClaudeModels({
+		timeoutMs: 5,
+		queryFn: () => ({ supportedModels: () => new Promise(() => {}), close: () => { timeoutClosed = true; } }),
+	}), /timed out after 5ms/);
 	assert.equal(timeoutClosed, true);
-
 	let failureClosed = false;
-	const failedQuery = {
-		supportedModels: async () => { throw new Error("initialization failed"); },
-		close: () => { failureClosed = true; },
-	};
-	await assert.rejects(
-		discoverClaudeModels({ queryFn: () => failedQuery }),
-		/initialization failed/,
-	);
+	await assert.rejects(discoverClaudeModels({
+		queryFn: () => ({ supportedModels: async () => { throw new Error("initialization failed"); }, close: () => { failureClosed = true; } }),
+	}), /initialization failed/);
 	assert.equal(failureClosed, true);
 });
 
-test("explicit configured ids remain a static fallback", () => {
-	const [model] = buildConfiguredModels(["local-alias"], PI_MODELS);
-	assert.equal(model.id, "local-alias");
-	assert.equal(model.contextWindow, 200_000);
-});
-
-test("explicit configured [1m] ids keep exact routing and 1M metadata", () => {
-	const [configured] = buildConfiguredModels(["claude-fable-5-1[1m]"], PI_MODELS);
+test("explicit configured 1M ids keep exact routing and canonical metadata", () => {
+	const [configured] = buildConfiguredModels(["claude-fable-5-1[1m]"], []);
 	const [registered] = buildVariantModels([configured], SETTINGS);
 	assert.equal(registered.id, "claude-fable-5-1[1m]");
 	assert.equal(registered.contextWindow, 1_000_000);
 	assert.equal(registered.maxTokens, 128_000);
 	assert.equal(claudeCodeModelId(registered, SETTINGS), "claude-fable-5-1[1m]");
+});
+
+test("dynamic retained releases offer context variants under each policy", () => {
+	for (const contextWindow of ["auto", "1m", "200k"]) {
+		const models = projectSupportedModels([], [], { contextWindow });
+		const opus = models.find((model) => model.id === "claude-opus-5-5");
+		assert.equal(opus.contextWindow, contextWindow === "200k" ? 200_000 : 1_000_000);
+		assert.ok(models.some((model) => model.id === `claude-opus-5-5-${contextWindow === "200k" ? "1m" : "200k"}`));
+	}
+});
+
+for (const failure of ["throw", "empty", "timeout"]) {
+	test(`provider discovery ${failure}: reports fallback and returns retained exact metadata`, async () => {
+		const dir = mkdtempSync(join(tmpdir(), "bridge-discovery-"));
+		const warnings = [];
+		const original = console.error;
+		console.error = (...args) => warnings.push(args.join(" "));
+		let models;
+		try {
+			models = await discoverProviderModels([], {
+				timeoutMs: 5,
+				includeAliases: true,
+				queryFn: () => ({
+					supportedModels: () => {
+						if (failure === "throw") throw new Error("SDK unavailable");
+						return failure === "empty" ? Promise.resolve([]) : new Promise(() => {});
+					},
+					close() {},
+				}),
+			}, join(dir, "catalog.json"));
+		} finally {
+			console.error = original;
+			rmSync(dir, { recursive: true, force: true });
+		}
+		assert.ok(warnings.some((warning) => warning.includes("retained exact catalog")));
+		assert.equal(models.find((m) => m.id === "claude-opus-5-5").contextWindow, 1_000_000);
+		assert.equal(models.find((m) => m.id === "claude-sonnet-5-5").maxTokens, 128_000);
+		assert.ok(models.every((m) => m.id.startsWith("claude-")));
+		assert.equal(models.some((m) => m.id === "claude-opus-5"), false);
+	});
+}
+
+test("SDK aliases do not warn; only configured hidden aliases receive one retained migration hint", () => {
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		projectSupportedModels([{ value: "unconfigured-alias", resolvedModel: "claude-future-6" }]);
+		assert.deepEqual(warnings, []);
+		for (let i = 0; i < 2; i++) buildConfiguredModels(["fable[1m]", "default[1m]"], []);
+	} finally { console.error = original; }
+	assert.equal(warnings.filter((line) => line.includes('hidden alias "fable[1m]"')).length, 1);
+	assert.equal(warnings.filter((line) => line.includes('hidden alias "default[1m]"')).length, 1);
+	assert.match(warnings.find((line) => line.includes("fable")), /claude-fable-5-1\[1m\]/);
+});
+
+test("exact Sonnet 5 wins over earlier Sonnet 5.5 while short names still match", () => {
+	const models = [{ id: "claude-sonnet-5-5" }, { id: "claude-sonnet-5" }];
+	assert.equal(resolveModel(models, "claude-sonnet-5").id, "claude-sonnet-5");
+	assert.equal(resolveModel(models, "CLAUDE-SONNET-5").id, "claude-sonnet-5");
+	assert.equal(resolveModel(models, "sonnet").id, "claude-sonnet-5-5");
+});
+
+test("discovery disables filesystem and cloud MCP initialization", async () => {
+	let params;
+	let closed = false;
+	await discoverClaudeModels({
+		settingSources: ["user", "project"],
+		queryFn: (input) => {
+			params = input;
+			return {
+				supportedModels: async () => [{ value: "claude-opus-5-5" }],
+				close() { closed = true; },
+			};
+		},
+	});
+	assert.equal(params.options.strictMcpConfig, true);
+	assert.deepEqual(params.options.mcpServers, {});
+	assert.deepEqual(params.options.settingSources, []);
+	assert.equal(params.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
+	assert.equal(closed, true);
+});
+
+test("latest selectors never enter static or dynamic catalogs, even with alias opt-in", () => {
+	const id = "claude-3-7-sonnet-latest";
+	for (const includeAliases of [false, true]) {
+		assert.deepEqual(buildConfiguredModels([id], [], { includeAliases }), []);
+		assert.equal(projectSupportedModels([{ value: id, resolvedModel: id }], [], { includeAliases }).some((m) => m.id === id), false);
+	}
+	for (const selector of [id, `${id}[1m]`, `${id}-200k`]) {
+		assert.throws(() => claudeCodeModelId({ id: selector }, SETTINGS), /claude-bridge:.*-latest.*exact/);
+	}
+});
+
+test("explicit 1M picker labels distinguish SDK selectors from default base rows", () => {
+	const dynamic = projectSupportedModels([{ value: "claude-future-6[1m]", displayName: "Claude Future 6" }], PI_MODELS);
+	const statics = buildVariantModels(buildConfiguredModels(["claude-opus-5-5", "claude-opus-5-5[1m]"], []), SETTINGS);
+	for (const models of [dynamic, statics]) {
+		const base = models.find((model) => model.id === "claude-opus-5-5");
+		const explicit = models.find((model) => model.id === "claude-opus-5-5[1m]");
+		assert.notEqual(explicit.name, base.name);
+		assert.match(explicit.name, /1M, explicit/);
+		assert.equal(explicit.contextWindow, 1_000_000);
+		assert.equal(claudeCodeModelId(explicit, SETTINGS), explicit.id);
+	}
+	assert.match(dynamic.find((model) => model.id === "claude-future-6[1m]").name, /1M, explicit/);
 });

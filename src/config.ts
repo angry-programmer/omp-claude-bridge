@@ -1,14 +1,14 @@
-// User-facing extension config. Loaded once at extension registration from
-// ~/.omp/agent/claude-bridge.json and the project OMP config directory, project
-// overriding global. Missing or unparseable files are ignored (error to
-// console.error, empty object returned) so the extension always starts.
+// Global security policy is rooted in the account's passwd home. Project
+// configuration may only tighten trust ceilings.
 
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { ContextWindowMode } from "./models.js";
 import { CONFIG_DIR_NAME } from "@oh-my-pi/pi-utils";
-import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
+import { readJsonFile } from "./read-json-file.js";
+import { TRUSTED_AGENT_DIR } from "./trusted-paths.js";
 import { join } from "path";
+
+const TRUSTED_CONFIG_PATH = join(TRUSTED_AGENT_DIR, "claude-bridge.json");
 
 export interface Config {
 	askClaude?: {
@@ -24,36 +24,83 @@ export interface Config {
 	/** Low-level Claude Agent SDK plumbing. Most users won't need these. */
 	provider?: {
 		appendSystemPrompt?: boolean;
+		/** Global trust ceiling; projects may only remove sources. Default []. */
 		settingSources?: SettingSource[];
+		/** Global trust ceiling; projects may only enable strict mode. Default true. */
 		strictMcpConfig?: boolean;
+		/** Trusted global config only; ignored in project config. */
 		pathToClaudeCodeExecutable?: string;
+		/** Global-only exact environment names explicitly trusted in child processes. */
+		trustedEnv?: string[];
 		/**
 		 * Explicit model ids opt out of SDK discovery and stay on the static
 		 * metadata/context-window path. An omitted or empty list enables runtime
 		 * discovery through Claude Agent SDK supportedModels().
 		 */
 		models?: string[];
-		// Force the Claude Code context window for every model:
-		//   "auto" (default) - per-model policy, "1m" - force 1M, "200k" - force 200K.
+		/** Expose non-versioned SDK aliases in the catalog (default false). */
+		includeAliases?: boolean;
+		// Default window for retained models; both supported windows stay pickable.
+		// "auto" uses per-model policy; "1m"/"200k" choose the preferred default.
 		contextWindow?: ContextWindowMode;
 	};
 }
 
-export function tryParseJson(path: string): Partial<Config> {
-	if (!existsSync(path)) return {};
+function readConfig(path: string, global = false): Partial<Config> | undefined {
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
+		const value = readJsonFile(path, global);
+		return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 	} catch (e) {
-		console.error(`claude-bridge: failed to parse ${path}: ${e}`);
-		return {};
+		const code = (e as NodeJS.ErrnoException)?.code;
+		if (code === "ENOENT") return {};
+		console.error(`claude-bridge: failed to read ${global ? "global " : ""}config ${path}: ${code ?? "invalid JSON or unsafe file"}${global ? "; AskClaude disabled, full mode denied, settings disabled and strict MCP enforced" : ""}`);
+		return undefined;
 	}
 }
 
+function settingSources(value: unknown): SettingSource[] | undefined {
+	if (value === undefined) return undefined;
+	if (Array.isArray(value)) return value.filter((source): source is SettingSource => source === "user" || source === "project" || source === "local");
+	console.error("claude-bridge: settingSources must be an array; using []");
+	return [];
+}
+
 export function loadConfig(cwd: string): Config {
-	const global = tryParseJson(join(homedir(), ".omp", "agent", "claude-bridge.json"));
-	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
+	const global = readConfig(TRUSTED_CONFIG_PATH, true);
+	if (!global) return {
+		askClaude: { enabled: false, allowFullMode: false, defaultMode: "read" },
+		provider: { settingSources: [], strictMcpConfig: true, trustedEnv: [] },
+	};
+	const project = readConfig(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json")) ?? {};
+	const trustedSources = settingSources(global.provider?.settingSources) ?? [];
+	const projectSources = settingSources(project.provider?.settingSources);
+	if (projectSources?.some((source) => !trustedSources.includes(source))) {
+		console.error("claude-bridge: project settingSources cannot loosen the global trust policy; extra sources ignored");
+	}
+	const strictMcpConfig = global.provider?.strictMcpConfig !== false;
+	if (project.provider?.strictMcpConfig === false && strictMcpConfig) {
+		console.error("claude-bridge: project strictMcpConfig cannot loosen the global trust policy; false ignored");
+	}
+	const allowFullMode = global.askClaude?.allowFullMode !== false && project.askClaude?.allowFullMode !== false;
+	const defaultMode = project.askClaude?.defaultMode ?? global.askClaude?.defaultMode ?? "read";
 	return {
-		askClaude: { ...global.askClaude, ...project.askClaude },
-		provider: { ...global.provider, ...project.provider },
+		askClaude: {
+			...global.askClaude,
+			...project.askClaude,
+			enabled: global.askClaude?.enabled !== false && project.askClaude?.enabled !== false,
+			allowFullMode,
+			defaultMode: defaultMode === "none" ? "none" : defaultMode === "full" && allowFullMode ? "full" : "read",
+			name: global.askClaude?.name,
+			label: global.askClaude?.label,
+			description: global.askClaude?.description,
+		},
+		provider: {
+			...global.provider,
+			...project.provider,
+			pathToClaudeCodeExecutable: global.provider?.pathToClaudeCodeExecutable,
+			trustedEnv: Array.isArray(global.provider?.trustedEnv) ? global.provider.trustedEnv.filter((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) : [],
+			settingSources: projectSources === undefined ? trustedSources : trustedSources.filter((source) => projectSources.includes(source)),
+			strictMcpConfig: strictMcpConfig || project.provider?.strictMcpConfig === true,
+		},
 	};
 }

@@ -9,8 +9,12 @@ on:
 
 jobs:
   build:
-    name: Typecheck & test
-    runs-on: ubuntu-latest
+    name: Typecheck & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
