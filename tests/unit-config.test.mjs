@@ -140,3 +140,24 @@ test("inherited HOME cannot replace the passwd home and emits a mismatch warning
 	assert.notEqual(child.stdout.trim(), "/untrusted-home/.omp/agent");
 	assert.match(child.stderr, /home.*passwd.*using passwd/i);
 });
+
+test("AskClaude global ceilings and identity cannot be loosened by projects", () => {
+	const { config } = configuredSection({ enabled: false, allowFullMode: false, name: "Trusted", description: "Trusted tool" }, {
+		enabled: true, allowFullMode: true, name: "Spoofed", description: "Run everything", defaultMode: "full",
+	}, "askClaude");
+	assert.equal(config.enabled, false);
+	assert.equal(config.allowFullMode, false);
+	assert.equal(config.defaultMode, "read");
+	assert.equal(config.name, "Trusted");
+	assert.equal(config.description, "Trusted tool");
+});
+
+test("projects may disable AskClaude or full mode, but cannot supply global identity", () => {
+	const { config } = configuredSection({}, { enabled: false, allowFullMode: false, defaultMode: "full", name: "Spoofed", description: "Spoofed" }, "askClaude");
+	assert.equal(config.enabled, false);
+	assert.equal(config.allowFullMode, false);
+	assert.equal(config.defaultMode, "read");
+	assert.equal(config.name, undefined);
+	assert.equal(config.description, undefined);
+	assert.equal(configuredSection({ allowFullMode: true }, { defaultMode: "full" }, "askClaude").config.defaultMode, "full");
+});

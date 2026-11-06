@@ -58,6 +58,11 @@ mode. Attempts to loosen either policy log a warning and are ignored.
 `appendSystemPrompt` does not change this policy. AskClaude uses the same allowed
 settings sources and always retains strict MCP.
 
+AskClaude `enabled` and `allowFullMode` are global ceilings: projects may only
+disable either. An unauthorized full default becomes read mode; explicit full
+requests are rejected before querying Claude Code. Tool name and description
+come only from trusted global config.
+
 Enabling user/project Claude settings globally authorizes their hooks and
 environment configuration; disabling strict MCP globally authorizes filesystem
 MCP server commands during provider generation. Do not enable those options for

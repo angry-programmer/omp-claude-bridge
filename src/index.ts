@@ -1809,7 +1809,7 @@ export default function (pi: ExtensionAPI) {
 
 	const askConf = config.askClaude;
 	const allowFull = askConf?.allowFullMode !== false;
-	const defaultMode = askConf?.defaultMode ?? "read";
+	const defaultMode = askConf?.defaultMode === "full" && !allowFull ? "read" : askConf?.defaultMode ?? "read";
 	const defaultIsolated = askConf?.defaultIsolated ?? false;
 	askClaudeToolName = askConf?.name ?? "AskClaude";
 
@@ -1832,6 +1832,7 @@ export default function (pi: ExtensionAPI) {
 			return { prompt: "" };
 		}
 		const parsed: AskClaudeToolParams = { prompt: value.prompt };
+		if ("mode" in value && value.mode === "full" && !allowFull) throw new Error("AskClaude full mode is disabled by bridge policy");
 		if ("mode" in value && (value.mode === "full" || value.mode === "read" || value.mode === "none")) parsed.mode = value.mode;
 		if ("model" in value && typeof value.model === "string") parsed.model = value.model;
 		if ("thinking" in value && typeof value.thinking === "string") {

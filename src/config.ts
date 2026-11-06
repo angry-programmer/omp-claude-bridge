@@ -74,8 +74,18 @@ export function loadConfig(cwd: string): Config {
 	if (project.provider?.strictMcpConfig === false && strictMcpConfig) {
 		console.error("claude-bridge: project strictMcpConfig cannot loosen the global trust policy; false ignored");
 	}
+	const allowFullMode = global.askClaude?.allowFullMode !== false && project.askClaude?.allowFullMode !== false;
+	const defaultMode = project.askClaude?.defaultMode ?? global.askClaude?.defaultMode ?? "read";
 	return {
-		askClaude: { ...global.askClaude, ...project.askClaude },
+		askClaude: {
+			...global.askClaude,
+			...project.askClaude,
+			enabled: global.askClaude?.enabled !== false && project.askClaude?.enabled !== false,
+			allowFullMode,
+			defaultMode: defaultMode === "full" && !allowFullMode ? "read" : defaultMode,
+			name: global.askClaude?.name,
+			description: global.askClaude?.description,
+		},
 		provider: {
 			...global.provider,
 			...project.provider,
