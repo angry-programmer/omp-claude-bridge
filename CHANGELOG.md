@@ -44,8 +44,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Discovery never loads filesystem Claude settings. Generation settings/MCP trust
   is global-only: project config may tighten but never loosen it; attempted
   loosening warns. Generation defaults to no settings sources and strict MCP.
-- Executable paths are honored only from the global OMP agent config, never
-  project config. Global config follows OMP's agent-directory/profile override.
+- Executable paths are honored only from global bridge config. Trusted global
+  config is anchored to the native account/launch home, independent of cwd
+  dotenv and OMP agent/config/profile directory overrides.
 - Discovery receives only its named provider options, never arbitrary project
   JSON keys such as the internal query function or timeout override.
 - Moving `-latest` selectors are excluded even with alias opt-in and rejected

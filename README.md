@@ -226,7 +226,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 ## Configuration reference
 
-Config is read from OMP's agent directory (`~/.omp/agent/claude-bridge.json` by default) and `.omp/claude-bridge.json` in the project. Project settings override global settings except `pathToClaudeCodeExecutable` (global only), `settingSources` (projects may only remove sources), and `strictMcpConfig` (projects may only enable strict mode). Loosening attempts warn and are ignored. See [SECURITY.md](SECURITY.md). A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
+Config is read from the native account/launch home at `.omp/agent/claude-bridge.json` and `.omp/claude-bridge.json` in the project. The global path ignores cwd dotenv values (including `HOME`) and OMP agent/config/profile directory overrides; inherited launcher environment remains trusted. Project settings override ordinary global settings except `pathToClaudeCodeExecutable` (global only), `settingSources` (projects may only remove sources), and `strictMcpConfig` (projects may only enable strict mode). Loosening attempts warn and are ignored. See [SECURITY.md](SECURITY.md). A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
 ```json
 {

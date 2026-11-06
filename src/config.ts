@@ -1,13 +1,18 @@
-// User-facing extension config. Loaded at extension registration from OMP's
-// agent directory and the project's OMP config directory. Project settings
-// override global settings except executable and settings/MCP trust ceilings.
-// Missing or unparseable files are ignored so the extension always starts.
+// Trusted bridge config is anchored to the native account/launch home, not OMP's
+// dotenv-sensitive directory resolver. Project config may override ordinary
+// settings, but only tighten settings/MCP trust ceilings. Missing or unparseable
+// files are ignored so the extension always starts.
 
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { ContextWindowMode } from "./models.js";
-import { CONFIG_DIR_NAME, getAgentDir } from "@oh-my-pi/pi-utils";
+import { CONFIG_DIR_NAME } from "@oh-my-pi/pi-utils";
 import { existsSync, readFileSync } from "fs";
+import { userInfo } from "node:os";
 import { join } from "path";
+
+// Bun loads cwd .env before application code. process.env.HOME, profile,
+// PI_CONFIG_DIR and PI_CODING_AGENT_DIR cannot identify trusted configuration.
+const TRUSTED_CONFIG_PATH = join(userInfo().homedir, ".omp", "agent", "claude-bridge.json");
 
 export interface Config {
 	askClaude?: {
@@ -54,7 +59,7 @@ export function tryParseJson(path: string): Partial<Config> {
 }
 
 export function loadConfig(cwd: string): Config {
-	const global = tryParseJson(join(getAgentDir(), "claude-bridge.json"));
+	const global = tryParseJson(TRUSTED_CONFIG_PATH);
 	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
 	const trustedSources = global.provider?.settingSources ?? [];
 	const projectSources = project.provider?.settingSources;

@@ -37,6 +37,15 @@ SDK or CLI should be reported to their respective upstream projects.
 
 ## Configuration trust boundary
 
+The trusted global file is the native account/launch home plus
+`.omp/agent/claude-bridge.json` (`os.userInfo().homedir`), independent of cwd
+dotenv values and OMP agent/config/profile directory overrides. On Olympus's
+Bun 1.3.10, cwd `.env` changes `process.env.HOME` but not the native home lookup;
+an inherited launcher `HOME` still affects that lookup and remains trusted.
+Environment-based custom agent/profile directories do not select trusted bridge
+configuration. The last-good snapshot remains non-executable catalog data under
+OMP's agent directory.
+
 Catalog discovery is initialization-only and always uses `settingSources: []`,
 `strictMcpConfig: true`, an empty MCP server map, and disabled cloud MCP.
 Neither global nor project settings can enable filesystem settings, hooks, or
