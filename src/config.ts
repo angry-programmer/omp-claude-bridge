@@ -35,8 +35,8 @@ export interface Config {
 		models?: string[];
 		/** Expose non-versioned SDK aliases in the catalog (default false). */
 		includeAliases?: boolean;
-		// Force the Claude Code context window for every model:
-		//   "auto" (default) - per-model policy, "1m" - force 1M, "200k" - force 200K.
+		// Default window for retained models; both supported windows stay pickable.
+		// "auto" uses per-model policy; "1m"/"200k" choose the preferred default.
 		contextWindow?: ContextWindowMode;
 	};
 }

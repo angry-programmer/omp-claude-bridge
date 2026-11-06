@@ -251,8 +251,8 @@ export function projectSupportedModels(
 
 // User-selectable context-window policy (see provider.contextWindow in config).
 //   "auto"  - canonical per-model default policy.
-//   "1m"    - force 1M: only register 1M-capable models, request [1m] where needed.
-//   "200k"  - force 200K: only register 200K-capable models, request bare model ids.
+//   "1m"    - prefer 1M by default; models without it retain their sole window.
+//   "200k"  - prefer 200K by default; 1M remains pickable as an alternate.
 export type ContextWindowMode = "auto" | "1m" | "200k";
 
 export type ContextWindowSettings = {
@@ -267,9 +267,7 @@ export type ClaudeCodeRuntimeModel = {
 const TWO_HUNDRED_K_CONTEXT = 200_000;
 const ONE_M_CONTEXT = 1_000_000;
 
-// Static auto policy follows the canonical current-model defaults: Fable, Opus,
-// and Sonnet entries use 1M where available; Haiku 4.5 remains 200K. Forced
-// modes still expose each known runtime independently.
+// Retained auto policy defaults to 1M except for Haiku 4.5 (200K).
 export function resolveClaudeCodeRuntimeModel(modelId: string, settings: ContextWindowSettings): ClaudeCodeRuntimeModel | null {
 	switch (settings.contextWindow) {
 		case "1m":

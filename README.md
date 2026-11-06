@@ -213,6 +213,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
   },
   "provider": {
     "contextWindow": "auto",
+    "includeAliases": false,
     "strictMcpConfig": true
   }
 }
@@ -236,7 +237,8 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 | Key | Default | Description |
 | --- | ------- | ----------- |
 | `models` | — | Non-empty exact-id list that opts out of runtime discovery and uses the static fallback path. |
-| `contextWindow` | `"auto"` | `"auto"`, `"1m"`, or `"200k"` for the static fallback path. Dynamic entries inherit matched OMP metadata, use 128K when unmatched, and keep explicit `[1m]` selectors at 1M. |
+| `includeAliases` | `false` | Opt into non-versioned SDK aliases. Also permits aliases in an explicit `models` list. Hidden aliases cannot resolve as OMP role selectors. |
+| `contextWindow` | `"auto"` | Default window for retained models in dynamic, static, and fallback modes; both variants stay available. Unknown dynamic entries inherit OMP metadata or 128K; explicit `[1m]` selectors stay 1M. |
 | `appendSystemPrompt` | `true` | Append OMP's AGENTS.md and skills. |
 | `settingSources` | — | Claude Code filesystem settings to load; also used during SDK model discovery. |
 | `strictMcpConfig` | `true` | Block MCP servers from `~/.claude.json` / `.mcp.json`. Cloud MCP is always blocked. |
@@ -244,7 +246,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 
 ## How it works
 
-OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. The bridge projects SDK values without renaming them and inherits matched OMP context metadata; explicit static configuration uses the canonical context-window table in [`src/models.ts`](src/models.ts).
+OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. Exact discovered selectors enrich the retained catalog in [`src/models.ts`](src/models.ts); aliases require opt-in. Explicit static configuration bypasses discovery. Failed discovery supplies the retained exact catalog with one warning per attempt.
 
 ## Debugging
 
