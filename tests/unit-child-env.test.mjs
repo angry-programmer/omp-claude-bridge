@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 
 const modulePath = new URL("../src/child-env.ts", import.meta.url).pathname;
 const denied = ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "http_proxy", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_CODE_USE_BEDROCK", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "ZDOTDIR", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_SSH_COMMAND", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_LOG_USER_PROMPTS", "CLAUDE_CODE_ENABLE_TELEMETRY", "NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE"];
-function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, noProvenance = false } = {}) {
+function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, noProvenance = false, platform = noProvenance ? "darwin" : undefined } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "bridge-env-"));
 	const files = { ".env": dotenv, ...dotenvFiles };
 	for (const [name, values] of Object.entries(files)) writeFileSync(join(root, name), Object.entries(values).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n"));
@@ -17,7 +17,8 @@ function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRI
 	try {
 		const child = spawnSync(process.execPath, ["--eval", `
 			Object.assign(process.env, ${JSON.stringify(runtime)});
-			${noProvenance ? `await import(${JSON.stringify(import.meta.resolve("@oh-my-pi/pi-utils"))}); await import(${JSON.stringify(new URL("../src/trusted-paths.ts", import.meta.url).pathname)}); Object.defineProperty(process, "platform", { value: "darwin" }); process.execArgv.push("--no-env-file");` : ""}
+			${platform ? `await import(${JSON.stringify(import.meta.resolve("@oh-my-pi/pi-utils"))}); await import(${JSON.stringify(new URL("../src/trusted-paths.ts", import.meta.url).pathname)}); Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });` : ""}
+			${noProvenance ? 'process.execArgv.push("--no-env-file");' : ""}
 			const { buildClaudeEnv } = await import(${JSON.stringify(modulePath)});
 			const selected = env => Object.fromEntries(${JSON.stringify(selectedNames)}.filter(key => env[key] !== undefined).map(key => [key, env[key]]));
 			console.log(JSON.stringify(Object.fromEntries(["generation", "discovery", "summary"].map(mode => [mode, selected(buildClaudeEnv(mode, { trustedEnv: ${JSON.stringify(trustedEnv)} }))]))));
@@ -81,4 +82,26 @@ test("without authoritative provenance a flag cannot bless runtime values", () =
 	assert.equal(generation.ANTHROPIC_BASE_URL, undefined);
 	assert.equal(generation.ANTHROPIC_API_KEY, undefined);
 	assert.equal(discovery.ANTHROPIC_API_KEY, undefined);
+});
+
+test("Windows denies mixed-case names and matches trusted names case-insensitively", () => {
+	const runtime = { anthropic_base_url: "https://safe-runtime.invalid", Claude_Config_Dir: "./runtime-config", node_options: "--runtime-option", DyLd_Insert_Libraries: "./runtime-library" };
+	const result = childEnv({ platform: "win32", runtime });
+	for (const mode of ["generation", "discovery", "summary"]) for (const key of Object.keys(runtime)) {
+		assert.equal(result[mode][key], undefined);
+		assert.equal(result[mode][key.toUpperCase()], undefined);
+	}
+	const trusted = childEnv({ platform: "win32", runtime, trustedEnv: ["AnThRoPiC_BaSe_Url"] });
+	for (const mode of ["generation", "discovery", "summary"]) {
+		assert.equal(trusted[mode].ANTHROPIC_BASE_URL, "https://safe-runtime.invalid");
+		assert.equal(trusted[mode].node_options, undefined);
+	}
+});
+
+test("Windows dotenv-name matching cannot be bypassed with another case", () => {
+	const result = childEnv({ platform: "win32", runtime: { ANTHROPIC_API_KEY: "project-key" }, dotenv: { anthropic_api_key: "project-key" }, trustedEnv: ["aNtHrOpIc_ApI_KeY"] });
+	for (const mode of ["generation", "discovery", "summary"]) {
+		assert.equal(result[mode].ANTHROPIC_API_KEY, undefined);
+		assert.equal(result[mode].anthropic_api_key, undefined);
+	}
 });

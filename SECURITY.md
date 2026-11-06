@@ -109,6 +109,8 @@ Without authoritative launcher provenance, denied names require that global
 opt-in. A Bun no-env-file flag alone is not provenance, since OMP can load dotenv
 later. Rejected HOME overrides retain the passwd account pin. Removed names
 are logged, never values; bridge isolation switches remain enforced.
+On Windows, policy, dotenv and trusted names are compared case-insensitively
+and child environment keys are canonicalized to uppercase.
 
 This is not an OS sandbox. A trusted launcher's non-project environment, PATH
 resolution, OMP's own extension/settings loading, the SDK/CLI and selected

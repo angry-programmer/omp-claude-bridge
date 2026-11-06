@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TRUSTED_HOME } from "./trusted-paths.js";
 
+function environmentName(name: string): string {
+	return process.platform === "win32" ? name.toUpperCase() : name;
+}
+
 // OMP restores launcher values while filtering dotenv. Its launch map is
 // private, so use the same Linux exec boundary only to check provenance of a
 // value already present in that filtered base, never to reinsert raw values.
@@ -11,7 +15,7 @@ function launchEnvironment(): Map<string, string> {
 		try {
 			return new Map(readFileSync("/proc/self/environ", "utf8").split("\0").flatMap((entry) => {
 				const i = entry.indexOf("=");
-				return i > 0 ? [[entry.slice(0, i), entry.slice(i + 1)] as [string, string]] : [];
+				return i > 0 ? [[environmentName(entry.slice(0, i)), entry.slice(i + 1)] as [string, string]] : [];
 			}));
 		} catch { /* Fail closed when procfs is unavailable. */ }
 	}
@@ -38,7 +42,7 @@ function projectDotenv(cwd: string, base: Record<string, string>) {
 	for (const mode of modes) if (mode) files.push(`.env.${mode}`, `.env.${mode}.local`);
 	const values = new Set(getDotenvEnvValues(cwd, process.env));
 	for (const file of files) for (const [name, value] of Object.entries(parseEnvFile(join(cwd, file)))) {
-		names.add(name);
+		names.add(environmentName(name));
 		values.add(value);
 	}
 	return { names, values };
@@ -49,8 +53,9 @@ export function buildClaudeEnv(
 	options: { cwd?: string; trustedEnv?: string[] } = {},
 ): Record<string, string> {
 	const cwd = options.cwd ?? process.cwd();
-	const trusted = new Set(options.trustedEnv ?? []);
-	const base = filterChildShellEnv(process.env, cwd);
+	const trusted = new Set(options.trustedEnv?.map(environmentName) ?? []);
+	const base: Record<string, string> = {};
+	for (const [name, value] of Object.entries(filterChildShellEnv(process.env, cwd))) base[environmentName(name)] = value;
 	const project = projectDotenv(cwd, base);
 	const result: Record<string, string> = {};
 	for (const [name, value] of Object.entries(base)) {
@@ -67,7 +72,7 @@ export function buildClaudeEnv(
 	if (!trusted.has("HOME") || result.HOME === undefined) result.HOME = TRUSTED_HOME;
 	// Bun exposes some built-in variables through non-enumerable accessors.
 	const candidates = new Set([...Object.keys(process.env), ...deniedNames]);
-	const removed = [...candidates].filter((name) => process.env[name] !== undefined && result[name] === undefined);
+	const removed = [...candidates].filter((name) => process.env[name] !== undefined && result[environmentName(name)] === undefined);
 	if (removed.length) console.error(`claude-bridge: removed child environment names: ${removed.sort().join(", ")}`);
 	result.ENABLE_CLAUDEAI_MCP_SERVERS = "0";
 	if (mode === "discovery") result.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
