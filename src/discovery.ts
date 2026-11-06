@@ -87,11 +87,14 @@ export async function discoverProviderModels(
 		let source = "retained exact catalog";
 		try {
 			const saved = JSON.parse(await readFile(cacheFile, "utf8"));
-			if (!Array.isArray(saved) || saved.length === 0 || !saved.every((entry) => typeof entry?.value === "string")) {
+			if (saved?.version !== 1 || typeof saved.savedAt !== "number" ||
+				!Number.isFinite(saved.savedAt) || saved.savedAt <= 0 || saved.savedAt > Date.now() ||
+				!Array.isArray(saved.models) || saved.models.length === 0 ||
+				!saved.models.every((entry: unknown) => entry !== null && typeof entry === "object" && "value" in entry && typeof entry.value === "string")) {
 				throw new Error("Invalid bridge model cache");
 			}
-			models = projectSupportedModels(saved, piAiModels, options);
-			source = "last-good exact catalog";
+			models = projectSupportedModels(saved.models, piAiModels, options);
+			source = `last-good exact catalog (age ${Math.floor((Date.now() - saved.savedAt) / 1000)}s)`;
 		} catch {
 			models = projectSupportedModels([], piAiModels, { contextWindow: options.contextWindow });
 		}
@@ -103,7 +106,7 @@ export async function discoverProviderModels(
 	const temporary = `${cacheFile}.${randomUUID()}.tmp`;
 	try {
 		await mkdir(dirname(cacheFile), { recursive: true, mode: 0o700 });
-		await writeFile(temporary, JSON.stringify(supported), { mode: 0o600 });
+		await writeFile(temporary, JSON.stringify({ version: 1, savedAt: Date.now(), models: supported }), { mode: 0o600 });
 		await rename(temporary, cacheFile);
 	} catch (error) {
 		console.error(`claude-bridge: could not save last-good model catalog: ${error}`);

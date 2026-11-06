@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverProviderModels } from "../src/discovery.ts";
@@ -14,6 +14,11 @@ test("discovery failures preserve the persisted last-good catalog across calls",
 	try {
 		const good = await discoverProviderModels([], success, path);
 		const saved = readFileSync(path, "utf8");
+		const snapshot = JSON.parse(saved);
+		assert.equal(snapshot.version, 1);
+		assert.ok(snapshot.savedAt <= Date.now() && snapshot.savedAt > Date.now() - 10_000);
+		assert.deepEqual(snapshot.models, [{ value: "future", resolvedModel: "claude-future-6" }]);
+		assert.equal(statSync(path).mode & 0o777, 0o600);
 		const fallback = await discoverProviderModels([], failure, path);
 		assert.deepEqual(fallback, good);
 		assert.ok(fallback.some((m) => m.id === "claude-future-6"));
@@ -37,4 +42,47 @@ test("cold or corrupt cache falls back to every retained explicit 1M selector", 
 			if (corrupt) assert.equal(readFileSync(path, "utf8"), "not json");
 		}
 	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("fallback reports snapshot age and rejects unsupported envelopes", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "bridge-cache-"));
+	const path = join(dir, "catalog.json");
+	const models = [{ value: "claude-future-6" }];
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		writeFileSync(path, JSON.stringify({ version: 1, savedAt: Date.now() - 120_000, models }));
+		assert.ok((await discoverProviderModels([], failure, path)).some((m) => m.id === "claude-future-6"));
+		assert.match(warnings[0], /last-good.*age 12[0-9]s/);
+		for (const snapshot of [
+			models,
+			{ version: 2, savedAt: Date.now(), models },
+			{ version: 1, savedAt: "yesterday", models },
+			{ version: 1, savedAt: Date.now() + 60_000, models },
+			{ version: 1, savedAt: Date.now(), models: [] },
+		]) {
+			const bytes = JSON.stringify(snapshot);
+			writeFileSync(path, bytes);
+			assert.equal((await discoverProviderModels([], failure, path)).some((m) => m.id === "claude-future-6"), false);
+			assert.equal(readFileSync(path, "utf8"), bytes);
+		}
+	} finally { console.error = original; rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a snapshot save failure preserves successful discovery and cleans its temporary file", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "bridge-cache-"));
+	const path = join(dir, "catalog.json");
+	mkdirSync(path);
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		const models = await discoverProviderModels([], success, path);
+		assert.ok(models.some((model) => model.id === "claude-future-6"));
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /could not save last-good model catalog/);
+		assert.deepEqual(readdirSync(dir), ["catalog.json"]);
+		assert.equal(statSync(path).isDirectory(), true);
+	} finally { console.error = original; rmSync(dir, { recursive: true, force: true }); }
 });

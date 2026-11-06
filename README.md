@@ -185,6 +185,11 @@ writes this file: it logs one warning and reprojects the last-good catalog with
 the current alias/window settings, or uses retained exact ids if no readable
 snapshot exists. Every retained 1M-capable model includes its explicit `[1m]`
 selector even in cold fallback.
+Snapshots use `{version: 1, savedAt, models}` with `savedAt` in Unix epoch
+milliseconds. Unsupported versions, invalid timestamps, and malformed/empty
+model arrays are rejected. Failure warnings include the accepted snapshot's
+age in seconds. The file is replaced atomically with mode `0600`; a save error
+warns but still returns the newly discovered catalog.
 
 OMP caches any returned discovery result, including fallback, for 24 hours.
 It exposes no uncached-fallback return type. The bridge snapshot prevents a

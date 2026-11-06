@@ -22,6 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Failed discovery logs one warning and reuses a bridge-owned last-good snapshot
   before the retained table. Only successful SDK discovery writes the snapshot.
   Retained explicit `[1m]` selectors also remain resolvable in cold fallback.
+- Last-good snapshots have a checked version/timestamp envelope; discovery
+  failure warnings report snapshot age. Snapshot permissions and save-error
+  recovery/temporary-file cleanup have regression coverage.
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
