@@ -35,6 +35,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   use current exact ids for new roles. Sonnet 5 and Haiku 4.5 remain retained.
 
 ### Fixed
+- Discovery never loads filesystem Claude settings. Generation settings/MCP trust
+  is global-only: project config may tighten but never loosen it; attempted
+  loosening warns. Generation defaults to no settings sources and strict MCP.
 - Executable paths are honored only from the global OMP agent config, never
   project config. Global config follows OMP's agent-directory/profile override.
 - Discovery receives only its named provider options, never arbitrary project

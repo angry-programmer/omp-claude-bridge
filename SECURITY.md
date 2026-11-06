@@ -34,3 +34,27 @@ This extension bridges to the Claude Code CLI through the official
 Authentication and billing are handled by Claude Code / your Anthropic
 subscription — this project never stores credentials. Issues in the underlying
 SDK or CLI should be reported to their respective upstream projects.
+
+## Configuration trust boundary
+
+Catalog discovery is initialization-only and always uses `settingSources: []`,
+`strictMcpConfig: true`, an empty MCP server map, and disabled cloud MCP.
+Neither global nor project settings can enable filesystem settings, hooks, or
+filesystem MCP during discovery.
+
+Generation defaults to no filesystem settings and strict MCP. Only the trusted
+global bridge config may allow Claude Code `settingSources` or set
+`strictMcpConfig: false`. Project bridge config may remove allowed sources or
+enable strict MCP, but cannot add sources or disable globally required strict
+mode. Attempts to loosen either policy log a warning and are ignored.
+`appendSystemPrompt` does not change this policy. AskClaude uses the same allowed
+settings sources and always retains strict MCP.
+
+Enabling user/project Claude settings globally authorizes their hooks and
+environment configuration; disabling strict MCP globally authorizes filesystem
+MCP server commands during provider generation. Do not enable those options for
+untrusted repositories. Cloud MCP remains disabled. The CLI and SDK themselves,
+the selected executable, inherited process environment, OMP extensions, and
+tools the user authorizes remain trusted: this bridge is not an OS sandbox.
+Read-only AskClaude modes restrict model tools, not processes authorized by
+globally enabled settings/hooks.

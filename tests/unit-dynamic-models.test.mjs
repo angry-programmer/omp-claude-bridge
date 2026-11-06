@@ -197,6 +197,7 @@ test("discovery disables filesystem and cloud MCP initialization", async () => {
 	let params;
 	let closed = false;
 	await discoverClaudeModels({
+		settingSources: ["user", "project"],
 		queryFn: (input) => {
 			params = input;
 			return {
@@ -207,6 +208,7 @@ test("discovery disables filesystem and cloud MCP initialization", async () => {
 	});
 	assert.equal(params.options.strictMcpConfig, true);
 	assert.deepEqual(params.options.mcpServers, {});
+	assert.deepEqual(params.options.settingSources, []);
 	assert.equal(params.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
 	assert.equal(closed, true);
 });

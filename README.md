@@ -216,7 +216,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 ## Configuration reference
 
-Config is read from OMP's agent directory (`~/.omp/agent/claude-bridge.json` by default) and `.omp/claude-bridge.json` in the project. Project settings override global settings **except** `pathToClaudeCodeExecutable`, which is trusted only from the global file. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
+Config is read from OMP's agent directory (`~/.omp/agent/claude-bridge.json` by default) and `.omp/claude-bridge.json` in the project. Project settings override global settings except `pathToClaudeCodeExecutable` (global only), `settingSources` (projects may only remove sources), and `strictMcpConfig` (projects may only enable strict mode). Loosening attempts warn and are ignored. See [SECURITY.md](SECURITY.md). A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
 ```json
 {
@@ -254,8 +254,8 @@ Config is read from OMP's agent directory (`~/.omp/agent/claude-bridge.json` by 
 | `includeAliases` | `false` | Opt into non-versioned SDK aliases. Also permits aliases in an explicit `models` list. Hidden aliases cannot resolve as OMP role selectors. |
 | `contextWindow` | `"auto"` | Default window for retained models in dynamic, static, and fallback modes; both variants stay available. Unknown dynamic entries inherit OMP metadata or 128K; explicit `[1m]` selectors stay 1M. |
 | `appendSystemPrompt` | `true` | Append OMP's AGENTS.md and skills. |
-| `settingSources` | — | Claude Code filesystem settings to load; also used during SDK model discovery. |
-| `strictMcpConfig` | `true` | Block MCP servers from `~/.claude.json` / `.mcp.json`. Cloud MCP is always blocked. |
+| `settingSources` | `[]` | Global generation trust ceiling for Claude Code filesystem settings/hooks; projects may only remove sources. Discovery always uses `[]`. |
+| `strictMcpConfig` | `true` | Block filesystem MCP. Only global config can disable it; projects may enable it. Discovery and AskClaude always stay strict. Cloud MCP is always blocked. |
 | `pathToClaudeCodeExecutable` | — | Trusted global config only. Path to the `claude` binary for discovery and requests; project values are ignored. |
 
 ## How it works

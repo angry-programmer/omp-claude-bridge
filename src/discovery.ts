@@ -2,7 +2,6 @@ import {
 	query as sdkQuery,
 	type ModelInfo,
 	type Query,
-	type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
 import { projectSupportedModels, type ContextWindowMode } from "./models.js";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
@@ -18,7 +17,6 @@ type QueryFactory = (params: Parameters<typeof sdkQuery>[0]) => Query;
 export type ClaudeModelDiscoveryOptions = {
 	cwd?: string;
 	pathToClaudeCodeExecutable?: string;
-	settingSources?: SettingSource[];
 	timeoutMs?: number;
 	queryFn?: QueryFactory;
 };
@@ -50,7 +48,7 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 			mcpServers: {},
 			persistSession: false,
 			permissionMode: "dontAsk",
-			settingSources: options.settingSources ?? ["user", "project"],
+			settingSources: [],
 			env: {
 				...process.env,
 				CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",

@@ -1302,14 +1302,9 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	const appendParts = [agentsAppend, skillsAppend].filter((part): part is string => Boolean(part));
 	const systemPromptAppend = appendParts.length > 0 ? appendParts.join("\n\n") : undefined;
 
-	// MCP auto-loading suppression: CC reads MCP servers from ~/.claude.json (top-level
-	// + per-project) and .mcp.json. Since pi executes tools (not CC), those are pure
-	// token overhead. --strict-mcp-config tells the binary to use ONLY mcpServers passed
-	// programmatically and ignore filesystem MCP entries — applied unconditionally because
-	// settingSources=undefined does NOT give isolation (the CC default loads all sources).
-	const settingSources: SettingSource[] | undefined = appendSystemPrompt
-		? undefined
-		: providerSettings.settingSources ?? ["user", "project"];
+	// Only trusted global settings may enable filesystem settings/MCP. Project
+	// config can tighten that ceiling; appendSystemPrompt never bypasses it.
+	const settingSources = providerSettings.settingSources ?? [];
 	const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 	const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -1347,7 +1342,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 		},
 		extraArgs,
 		...(effort ? { effort } : {}),
-		...(settingSources ? { settingSources } : {}),
+		settingSources,
 		...(mcpServers ? { mcpServers } : {}),
 		...(resumeSessionId ? { resume: resumeSessionId } : {}),
 		...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
@@ -1573,7 +1568,7 @@ async function promptAndWait(
 			systemPrompt: skillsBlock
 				? { type: "preset", preset: "claude_code", append: skillsBlock }
 				: undefined,
-			settingSources: ["user", "project"] as SettingSource[],
+			settingSources: providerSettings.settingSources ?? [],
 			extraArgs,
 			...(resumeSessionId ? { resume: resumeSessionId } : {}),
 			...(options?.isolated ? { persistSession: false } : {}),
@@ -1780,7 +1775,6 @@ export default function (pi: ExtensionAPI) {
 	const fetchDynamicModels = async (_apiKey: string | undefined) => {
 		const projected = await discoverProviderModels(getModels("anthropic"), {
 			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
-			settingSources: providerSettings.settingSources,
 			includeAliases: providerSettings.includeAliases,
 			contextWindow: contextWindowSettings.contextWindow,
 			cwd: process.cwd(),
