@@ -165,7 +165,8 @@ and output metadata are enriched from OMP, with retained release metadata when
 OMP has no entry. The four current releases have 128,000 max-output tokens and
 adaptive thinking (`low`, `medium`, `high`, `xhigh` in the picker).
 Duplicate aliases and resolved selectors are ignored, and explicit `[1m]` IDs
-retain 1M context metadata.
+retain 1M context metadata and are labelled `(1M, explicit)` so they differ from
+base rows advertising the same window.
 
 If you need a deliberately static catalog, set `provider.models` to a
 non-empty list of exact Claude Code ids. That explicit list bypasses discovery

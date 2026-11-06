@@ -223,3 +223,17 @@ test("latest selectors never enter static or dynamic catalogs, even with alias o
 		assert.throws(() => claudeCodeModelId({ id: selector }, SETTINGS), /claude-bridge:.*-latest.*exact/);
 	}
 });
+
+test("explicit 1M picker labels distinguish SDK selectors from default base rows", () => {
+	const dynamic = projectSupportedModels([{ value: "claude-future-6[1m]", displayName: "Claude Future 6" }], PI_MODELS);
+	const statics = buildVariantModels(buildConfiguredModels(["claude-opus-5-5", "claude-opus-5-5[1m]"], []), SETTINGS);
+	for (const models of [dynamic, statics]) {
+		const base = models.find((model) => model.id === "claude-opus-5-5");
+		const explicit = models.find((model) => model.id === "claude-opus-5-5[1m]");
+		assert.notEqual(explicit.name, base.name);
+		assert.match(explicit.name, /1M, explicit/);
+		assert.equal(explicit.contextWindow, 1_000_000);
+		assert.equal(claudeCodeModelId(explicit, SETTINGS), explicit.id);
+	}
+	assert.match(dynamic.find((model) => model.id === "claude-future-6[1m]").name, /1M, explicit/);
+});

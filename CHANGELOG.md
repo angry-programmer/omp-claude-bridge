@@ -25,6 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Last-good snapshots have a checked version/timestamp envelope; discovery
   failure warnings report snapshot age. Snapshot permissions and save-error
   recovery/temporary-file cleanup have regression coverage.
+- Explicit `[1m]` picker entries use `(1M, explicit)` labels, distinct from base
+  1M entries without changing their exact routing.
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.

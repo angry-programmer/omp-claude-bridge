@@ -242,9 +242,10 @@ function projectDiscoveredModel(
 			(info.supportedEffortLevels?.length ?? 0) > 0
 		: Boolean(metadata?.reasoning);
 	const sdkThinking = projectSdkThinking(info);
+	const displayName = canonicalName ? metadata?.name ?? id : info.displayName || id;
 	return {
 		id,
-		name: canonicalName ? metadata?.name ?? id : info.displayName || id,
+		name: /\[1m\]$/i.test(id) ? variantName(displayName, ONE_M_CONTEXT, true) : displayName,
 		reasoning,
 		input: metadata?.input ?? ["text"],
 		cost: metadata?.cost ?? ZERO_COST,
@@ -386,8 +387,8 @@ export function resolveModel<T extends { id: string }>(models: T[], input: strin
 	return models.find((m) => m.id === lower) ?? models.find((m) => m.id.includes(lower));
 }
 
-function variantName(baseName: string, contextWindow: number): string {
-	const label = contextWindow === ONE_M_CONTEXT ? "1M" : "200K";
+function variantName(baseName: string, contextWindow: number, explicit = false): string {
+	const label = contextWindow === ONE_M_CONTEXT ? `1M${explicit ? ", explicit" : ""}` : "200K";
 	// Strip any window hint pi-ai already baked into the name so we don't double it.
 	const base = baseName.replace(/\s*(?:\((?:1M|200K)\)|\b1M\b)\s*$/i, "").trimEnd();
 	return `${base} (${label})`;
@@ -407,7 +408,7 @@ export function buildVariantModels<T extends { id: string; name: string; context
 	const result: T[] = [];
 	for (const m of models) {
 		if (/\[1m\]$/i.test(m.id)) {
-			result.push({ ...m, contextWindow: ONE_M_CONTEXT, name: variantName(m.name, ONE_M_CONTEXT) });
+			result.push({ ...m, contextWindow: ONE_M_CONTEXT, name: variantName(m.name, ONE_M_CONTEXT, true) });
 			continue;
 		}
 		// Unknown model (not in the model tables): keep one default-path entry.
