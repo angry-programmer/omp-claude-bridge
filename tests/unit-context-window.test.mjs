@@ -94,3 +94,14 @@ test("an unknown static model uses conservative auto metadata and warns", () => 
 		assert.ok(warnings.some((line) => line.includes("claude-unknown-9") && line.includes("no known context")));
 	} finally { console.error = original; }
 });
+
+test("unsupported window variants fail at the bridge in both runtime modes", () => {
+	for (const active of [false, true]) {
+		setDynamicRuntimeCatalogActive(active);
+		try {
+			for (const id of ["claude-future-6-200k", "claude-future-6-1m"]) {
+				assert.throws(() => claudeCodeModelId({ id }, { contextWindow: "auto" }), /claude-bridge: unsupported window variant.*claude-future-6/);
+			}
+		} finally { setDynamicRuntimeCatalogActive(false); }
+	}
+});

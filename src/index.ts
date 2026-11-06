@@ -129,7 +129,7 @@ function resolveModel(input: string) {
 function resolveAskClaudeModel(requestedModel = "claude-opus-5-5") {
 	const model = resolveModel(requestedModel);
 	const modelId = model?.id ?? requestedModel;
-	return { modelId, cliModel: model ? claudeCodeModelId(model, contextWindowSettings) : modelId };
+	return { modelId, cliModel: claudeCodeModelId(model ?? { id: modelId }, contextWindowSettings) };
 }
 
 // --- Error handling ---

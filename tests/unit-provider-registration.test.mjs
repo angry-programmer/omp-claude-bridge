@@ -114,3 +114,7 @@ test("AskClaude defaults to exact Opus 5.5 before discovery", () => {
 	assert.match(__test.resolveAskClaudeModel().cliModel, /^claude-opus-5-5(?:\[1m\])?$/);
 	assert.equal(__test.resolveAskClaudeModel("claude-sonnet-5").modelId, "claude-sonnet-5");
 });
+
+test("AskClaude rejects unsupported variants even when absent from the catalog", () => {
+	assert.throws(() => __test.resolveAskClaudeModel("claude-future-6-200k"), /unsupported window variant/);
+});

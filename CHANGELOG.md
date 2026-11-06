@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   use current exact ids for new roles. Sonnet 5 and Haiku 4.5 remain retained.
 
 ### Fixed
+- Unsupported bridge window suffixes fail clearly before reaching Claude Code,
+  including unresolved selectors supplied directly to AskClaude.
 - AskClaude defaults to exact `claude-opus-5-5`, not the moving `opus` alias.
 - Static/AskClaude model lookup checks exact ids before substring short names,
   so selecting Sonnet 5 never selects an earlier-listed Sonnet 5.5 instead.

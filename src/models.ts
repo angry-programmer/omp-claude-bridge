@@ -357,6 +357,9 @@ export function setDynamicRuntimeCatalogActive(active: boolean): void {
 export function claudeCodeModelId(model: { id: string }, settings: ContextWindowSettings): string {
 	if (/\[1m\]$/i.test(model.id)) return model.id;
 	const { baseId, forced } = parseVariantId(model.id);
+	if (forced && !hasWindowPolicy(baseId)) {
+		throw new Error(`claude-bridge: unsupported window variant "${model.id}" for model ${baseId}`);
+	}
 	if (dynamicRuntimeCatalogActive && !hasWindowPolicy(baseId)) return model.id;
 	const runtimeModel = forced === "1m"
 		? resolveForcedOneMRuntimeModel(baseId)
