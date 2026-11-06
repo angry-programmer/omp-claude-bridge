@@ -64,9 +64,9 @@ mode. Attempts to loosen either policy log a warning and are ignored.
 settings sources and always retains strict MCP.
 
 AskClaude `enabled` and `allowFullMode` are global ceilings: projects may only
-disable either. An unauthorized full default becomes read mode; explicit full
-requests are rejected before querying Claude Code. Tool name and description
-come only from trusted global config.
+disable either. Unauthorized full defaults and unrecognized defaults become
+read mode; explicit full requests are rejected before querying Claude Code.
+Tool name and description come only from trusted global config.
 
 Enabling user/project Claude settings globally authorizes their hooks and
 environment configuration; disabling strict MCP globally authorizes filesystem

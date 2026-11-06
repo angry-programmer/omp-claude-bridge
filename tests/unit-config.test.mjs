@@ -166,3 +166,9 @@ test("trustedEnv is an exact global-only name list", () => {
 	assert.deepEqual(configuredSection({}, { trustedEnv: ["ANTHROPIC_BASE_URL"] }).config.trustedEnv, []);
 	assert.deepEqual(configuredSection({ trustedEnv: ["HTTPS_PROXY", "*", 42] }, { trustedEnv: ["BASH_ENV"] }).config.trustedEnv, ["HTTPS_PROXY"]);
 });
+
+test("invalid default modes cannot bypass the AskClaude full-mode ceiling", () => {
+	for (const defaultMode of ["invalid", {}, 42]) {
+		assert.equal(configuredSection({ allowFullMode: false }, { defaultMode }, "askClaude").config.defaultMode, "read");
+	}
+});

@@ -84,7 +84,7 @@ export function loadConfig(cwd: string): Config {
 			...project.askClaude,
 			enabled: global.askClaude?.enabled !== false && project.askClaude?.enabled !== false,
 			allowFullMode,
-			defaultMode: defaultMode === "full" && !allowFullMode ? "read" : defaultMode,
+			defaultMode: defaultMode === "none" ? "none" : defaultMode === "full" && allowFullMode ? "full" : "read",
 			name: global.askClaude?.name,
 			description: global.askClaude?.description,
 		},
