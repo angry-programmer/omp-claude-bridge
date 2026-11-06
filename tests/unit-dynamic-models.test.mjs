@@ -170,3 +170,18 @@ for (const failure of ["throw", "empty", "timeout"]) {
 		assert.equal(models.some((m) => m.id === "claude-opus-5"), false);
 	});
 }
+
+test("hidden aliases log their exact migration target only once", () => {
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		for (let i = 0; i < 2; i++) {
+			projectSupportedModels([{ value: "review-hidden-alias", resolvedModel: "claude-future-6" }]);
+			buildConfiguredModels(["fable[1m]"], []);
+		}
+	} finally { console.error = original; }
+	assert.equal(warnings.length, 2);
+	assert.match(warnings[0], /hidden alias "review-hidden-alias".*claude-future-6/);
+	assert.match(warnings[1], /hidden alias "fable\[1m\]".*claude-fable-5-1\[1m\]/);
+});

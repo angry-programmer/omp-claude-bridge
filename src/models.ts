@@ -119,13 +119,31 @@ export function buildModels<T extends PiAiModel>(piAiModels: T[]): ClaudeProvide
 	return buildConfiguredModels(MODEL_IDS_IN_ORDER, piAiModels);
 }
 
+const warnedHiddenAliases = new Set<string>();
+
+function warnHiddenAlias(alias: string, resolvedModel?: string): void {
+	if (warnedHiddenAliases.has(alias)) return;
+	warnedHiddenAliases.add(alias);
+	const family = stripOneMillionSuffix(alias);
+	const known: Record<string, string> = {
+		default: "claude-opus-5-5", opus: "claude-opus-5-5",
+		sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-1",
+	};
+	const exact = resolvedModel ?? (known[family] ? `${known[family]}${family !== alias ? "[1m]" : ""}` : undefined);
+	console.error(`claude-bridge: hidden alias "${alias}" (${exact ? `resolves to ${exact}; use claude-bridge/${exact}` : "exact resolution unavailable"}); or set provider.includeAliases: true`);
+}
+
 export function buildConfiguredModels<T extends PiAiModel>(
 	// Non-versioned selectors are deliberately opt-in, including static lists.
 	ids: readonly string[],
 	piAiModels: readonly T[],
 	options: { includeAliases?: boolean } = {},
 ): ClaudeProviderModel[] {
-	return ids.filter((id) => options.includeAliases === true || isExactModelId(id)).map((id) => {
+	return ids.filter((id) => {
+		if (options.includeAliases === true || isExactModelId(id)) return true;
+		warnHiddenAlias(id);
+		return false;
+	}).map((id) => {
 		const source = findPiAiMetadata({ value: id }, piAiModels);
 		return metadataModel(id, source, /\[1m\]$/i.test(id));
 	});
@@ -239,6 +257,7 @@ export function projectSupportedModels(
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
 		if (!info || typeof info.value !== "string" || !info.value) continue;
+		if (options.includeAliases !== true && !isExactModelId(info.value)) warnHiddenAlias(info.value, info.resolvedModel);
 		if ((options.includeAliases === true || isExactModelId(info.value)) && !seen.has(info.value)) {
 			seen.add(info.value);
 			result.push(projectDiscoveredModel(info, info.value, piAiModels, false));
