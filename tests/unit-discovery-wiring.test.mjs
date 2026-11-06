@@ -9,19 +9,36 @@ function registeredDiscovery(provider) {
 		const provider = ${JSON.stringify(provider)};
 		let captured;
 		mock.module("./src/config.ts", () => ({ loadConfig: () => ({ provider }) }));
-		mock.module("./src/discovery.ts", () => ({ discoverProviderModels: async (_, options) => { captured = options; return []; } }));
+		const { projectSupportedModels } = await import("./src/models.ts");
+		mock.module("./src/discovery.ts", () => ({ discoverProviderModels: async (_, options) => {
+			captured = options;
+			return projectSupportedModels([{ value: "sonnet", resolvedModel: "claude-sonnet-5-5" }], [], options);
+		} }));
 		const { default: extension } = await import("./src/index.ts");
 		let registration;
 		extension({ on() {}, registerTool() {}, registerProvider(_, config) { registration = config; } });
-		await registration.fetchDynamicModels(undefined);
-		console.log(JSON.stringify(captured));
+		const catalog = await registration.fetchDynamicModels(undefined);
+		console.log(JSON.stringify({ options: captured, catalog }));
 	`], { cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...process.env, CLAUDE_BRIDGE_DEBUG: "0" } });
 	assert.equal(child.status, 0, child.stderr);
 	return JSON.parse(child.stdout.trim());
 }
 
 test("discovery ignores arbitrary provider JSON keys", () => {
-	const options = registeredDiscovery({ timeoutMs: 1, queryFn: "untrusted", strictMcpConfig: false, models: [], appendSystemPrompt: true });
+	const { options } = registeredDiscovery({ timeoutMs: 1, queryFn: "untrusted", strictMcpConfig: false, models: [], appendSystemPrompt: true });
 	assert.deepEqual(Object.keys(options).sort(), ["contextWindow", "cwd"]);
 	assert.equal(options.cwd, new URL("..", import.meta.url).pathname.replace(/\/$/, ""));
+});
+
+test("registered discovery receives alias opt-in and preferred window policy", () => {
+	const { options, catalog } = registeredDiscovery({ includeAliases: true, contextWindow: "200k" });
+	assert.equal(options.includeAliases, true);
+	assert.equal(options.contextWindow, "200k");
+	assert.equal(catalog.find((model) => model.id === "sonnet").id, "sonnet");
+	assert.equal(catalog.find((model) => model.id === "claude-sonnet-5-5").contextWindow, 200_000);
+	assert.equal(catalog.find((model) => model.id === "claude-sonnet-5-5-1m").contextWindow, 1_000_000);
+	const defaults = registeredDiscovery({});
+	assert.equal(defaults.options.contextWindow, "auto");
+	assert.equal(defaults.catalog.some((model) => model.id === "sonnet"), false);
+	assert.equal(defaults.catalog.find((model) => model.id === "claude-sonnet-5-5").contextWindow, 1_000_000);
 });
