@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 
 for (const appendSystemPrompt of [false, true]) {
 	test(`real loadConfig constrains provider and AskClaude generation (appendSystemPrompt=${appendSystemPrompt})`, () => {
+		const env = { ...process.env, CLAUDE_BRIDGE_DEBUG: "0" };
+		delete env.ANTHROPIC_BASE_URL;
+		delete env.CLAUDE_CONFIG_DIR;
 		const child = spawnSync(process.execPath, ["--eval", `
 			import assert from "node:assert/strict";
 			import { mock } from "bun:test";
@@ -63,7 +66,7 @@ for (const appendSystemPrompt of [false, true]) {
 				assert.equal(calls.length, 2, "forbidden full mode must not query the SDK");
 				console.log("GENERATION CONFIG PASS");
 			} finally { process.chdir(before); rmSync(root, { recursive: true, force: true }); }
-		`], { cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...process.env, CLAUDE_BRIDGE_DEBUG: "0" } });
+		`], { cwd: new URL("..", import.meta.url), encoding: "utf8", env });
 		assert.equal(child.status, 0, child.stderr);
 		assert.match(child.stdout, /GENERATION CONFIG PASS/);
 	});
