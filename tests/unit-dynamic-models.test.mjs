@@ -210,3 +210,14 @@ test("discovery disables filesystem and cloud MCP initialization", async () => {
 	assert.equal(params.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
 	assert.equal(closed, true);
 });
+
+test("latest selectors never enter static or dynamic catalogs, even with alias opt-in", () => {
+	const id = "claude-3-7-sonnet-latest";
+	for (const includeAliases of [false, true]) {
+		assert.deepEqual(buildConfiguredModels([id], [], { includeAliases }), []);
+		assert.equal(projectSupportedModels([{ value: id, resolvedModel: id }], [], { includeAliases }).some((m) => m.id === id), false);
+	}
+	for (const selector of [id, `${id}[1m]`, `${id}-200k`]) {
+		assert.throws(() => claudeCodeModelId({ id: selector }, SETTINGS), /claude-bridge:.*-latest.*exact/);
+	}
+});

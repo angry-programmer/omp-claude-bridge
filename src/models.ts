@@ -140,6 +140,7 @@ export function buildConfiguredModels<T extends PiAiModel>(
 	options: { includeAliases?: boolean } = {},
 ): ClaudeProviderModel[] {
 	return ids.filter((id) => {
+		if (isLatestSelector(id)) return false;
 		if (options.includeAliases === true || isExactModelId(id)) return true;
 		warnHiddenAlias(id);
 		return false;
@@ -190,8 +191,12 @@ function hasWindowPolicy(id: string): boolean {
 	return (MODEL_IDS_IN_ORDER as readonly string[]).includes(id) || Object.hasOwn(LEGACY_ONE_M_RUNTIMES, id);
 }
 
+function isLatestSelector(id: string): boolean {
+	return /-latest(?:\[1m\]|-200k|-1m)?$/i.test(id);
+}
+
 export function isExactModelId(id: string): boolean {
-	return /^claude-.+-\d/.test(id);
+	return /^claude-.+-\d/.test(id) && !isLatestSelector(id);
 }
 
 function stripOneMillionSuffix(id: string): string {
@@ -267,8 +272,8 @@ export function projectSupportedModels(
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
 		if (!info || typeof info.value !== "string" || !info.value) continue;
-		if (options.includeAliases !== true && !isExactModelId(info.value)) warnHiddenAlias(info.value, info.resolvedModel);
-		if ((options.includeAliases === true || isExactModelId(info.value)) && !seen.has(info.value)) {
+		if (!isLatestSelector(info.value) && options.includeAliases !== true && !isExactModelId(info.value)) warnHiddenAlias(info.value, info.resolvedModel);
+		if (!isLatestSelector(info.value) && (options.includeAliases === true || isExactModelId(info.value)) && !seen.has(info.value)) {
 			seen.add(info.value);
 			result.push(projectDiscoveredModel(info, info.value, piAiModels, false));
 		}
@@ -355,6 +360,9 @@ export function setDynamicRuntimeCatalogActive(active: boolean): void {
 }
 
 export function claudeCodeModelId(model: { id: string }, settings: ContextWindowSettings): string {
+	if (isLatestSelector(model.id)) {
+		throw new Error(`claude-bridge: -latest selector "${model.id}" is not supported; use an exact model id`);
+	}
 	if (/\[1m\]$/i.test(model.id)) return model.id;
 	const { baseId, forced } = parseVariantId(model.id);
 	if (forced && !hasWindowPolicy(baseId)) {
