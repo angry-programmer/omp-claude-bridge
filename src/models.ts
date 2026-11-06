@@ -121,15 +121,15 @@ export function buildModels<T extends PiAiModel>(piAiModels: T[]): ClaudeProvide
 
 const warnedHiddenAliases = new Set<string>();
 
-function warnHiddenAlias(alias: string, resolvedModel?: string): void {
-	if (warnedHiddenAliases.has(alias)) return;
+/** Called only for aliases actually referenced by bridge config or OMP roles. */
+export function warnConfiguredAlias(alias: string): void {
+	if (isExactModelId(alias) || isLatestSelector(alias) || warnedHiddenAliases.has(alias)) return;
 	warnedHiddenAliases.add(alias);
 	const family = stripOneMillionSuffix(alias);
-	const known: Record<string, string> = {
-		default: "claude-opus-5-5", opus: "claude-opus-5-5",
-		sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-1",
-	};
-	const exact = resolvedModel ?? (known[family] ? `${known[family]}${family !== alias ? "[1m]" : ""}` : undefined);
+	// Retained order chooses the current version within a family, and the first
+	// retained release is the bridge default. No second version map can drift.
+	const target = MODEL_IDS_IN_ORDER.find((id) => family === "default" || id.startsWith(`claude-${family}-`));
+	const exact = target ? `${target}${family !== alias ? "[1m]" : ""}` : undefined;
 	console.error(`claude-bridge: hidden alias "${alias}" (${exact ? `resolves to ${exact}; use claude-bridge/${exact}` : "exact resolution unavailable"}); or set provider.includeAliases: true`);
 }
 
@@ -142,7 +142,7 @@ export function buildConfiguredModels<T extends PiAiModel>(
 	return ids.filter((id) => {
 		if (isLatestSelector(id)) return false;
 		if (options.includeAliases === true || isExactModelId(id)) return true;
-		warnHiddenAlias(id);
+		warnConfiguredAlias(id);
 		return false;
 	}).map((id) => {
 		const source = findPiAiMetadata({ value: id }, piAiModels);
@@ -273,7 +273,6 @@ export function projectSupportedModels(
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
 		if (!info || typeof info.value !== "string" || !info.value) continue;
-		if (!isLatestSelector(info.value) && options.includeAliases !== true && !isExactModelId(info.value)) warnHiddenAlias(info.value, info.resolvedModel);
 		if (!isLatestSelector(info.value) && (options.includeAliases === true || isExactModelId(info.value)) && !seen.has(info.value)) {
 			seen.add(info.value);
 			result.push(projectDiscoveredModel(info, info.value, piAiModels, false));

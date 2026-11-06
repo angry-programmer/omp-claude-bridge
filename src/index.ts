@@ -1,6 +1,6 @@
 import { StringEnum, Type, getModels, type AssistantMessage, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions, type Tool, type Usage } from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-ai-shim";
 import * as piAi from "@oh-my-pi/pi-coding-agent/extensibility/legacy-pi-ai-shim";
-import { buildSessionContext, keyHint, Text, type CompactionEntry, type ExtensionAPI, type ExtensionUIContext } from "@oh-my-pi/pi-coding-agent";
+import { buildSessionContext, keyHint, settings, Text, type CompactionEntry, type ExtensionAPI, type ExtensionUIContext } from "@oh-my-pi/pi-coding-agent";
 import { compact } from "@oh-my-pi/pi-agent-core/compaction";
 import { createSdkMcpServer, query, type SDKMessage, type SDKUserMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources";
@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
+import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, routeClaudeEffort, setDynamicRuntimeCatalogActive, warnConfiguredAlias, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
 import { discoverProviderModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
@@ -1709,6 +1709,19 @@ export default function (pi: ExtensionAPI) {
 	configuredModels = usingStaticModelConfig
 		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic"), providerSettings), contextWindowSettings)
 		: [];
+	if (providerSettings.includeAliases !== true) {
+		try {
+			for (const selector of Object.values(settings.getModelRoles())) {
+				if (typeof selector !== "string") continue;
+				for (const match of selector.matchAll(/\bclaude-bridge\/([a-z0-9._-]+(?:\[1m\])?)/gi)) {
+					warnConfiguredAlias(match[1]);
+				}
+			}
+		} catch (error) {
+			// Standalone extension hosts may not initialize OMP's settings singleton.
+			debug("configured alias hints unavailable:", error);
+		}
+	}
 	// OMP owns providerSessionState maps and closes their entries with the
 	// owning session. AskClaude does not receive that map from tool execution,
 	// so keep its optional shared-mode resume record inside this runtime's

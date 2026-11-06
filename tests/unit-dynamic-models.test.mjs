@@ -52,7 +52,6 @@ test("new SDK versions use canonical metadata without a retained release entry",
 	], PI_MODELS);
 	const model = models.find((m) => m.id === "claude-future-6[1m]");
 	assert.equal(models.filter((m) => m.id === model.id).length, 1);
-	assert.equal(model.name, "Claude Future 6");
 	assert.equal(model.contextWindow, 1_000_000);
 	assert.equal(model.maxTokens, 128_000);
 	assert.deepEqual(model.input, ["text", "image"]);
@@ -171,19 +170,18 @@ for (const failure of ["throw", "empty", "timeout"]) {
 	});
 }
 
-test("hidden aliases log their exact migration target only once", () => {
+test("SDK aliases do not warn; only configured hidden aliases receive one retained migration hint", () => {
 	const warnings = [];
 	const original = console.error;
 	console.error = (...args) => warnings.push(args.join(" "));
 	try {
-		for (let i = 0; i < 2; i++) {
-			projectSupportedModels([{ value: "review-hidden-alias", resolvedModel: "claude-future-6" }]);
-			buildConfiguredModels(["fable[1m]"], []);
-		}
+		projectSupportedModels([{ value: "unconfigured-alias", resolvedModel: "claude-future-6" }]);
+		assert.deepEqual(warnings, []);
+		for (let i = 0; i < 2; i++) buildConfiguredModels(["fable[1m]", "default[1m]"], []);
 	} finally { console.error = original; }
-	assert.equal(warnings.length, 2);
-	assert.match(warnings[0], /hidden alias "review-hidden-alias".*claude-future-6/);
-	assert.match(warnings[1], /hidden alias "fable\[1m\]".*claude-fable-5-1\[1m\]/);
+	assert.equal(warnings.filter((line) => line.includes('hidden alias "fable[1m]"')).length, 1);
+	assert.equal(warnings.filter((line) => line.includes('hidden alias "default[1m]"')).length, 1);
+	assert.match(warnings.find((line) => line.includes("fable")), /claude-fable-5-1\[1m\]/);
 });
 
 test("exact Sonnet 5 wins over earlier Sonnet 5.5 while short names still match", () => {

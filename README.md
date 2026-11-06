@@ -156,6 +156,10 @@ as `claude-bridge/sonnet` cannot resolve a hidden selector: migrate it to an
 exact id, or enable `provider.includeAliases` (and include it in your static
 list if using one). Opted-in aliases route unchanged through Claude Code, so
 their resolved version can change. AskClaude can still send an alias directly.
+Migration hints are emitted only for aliases in static `provider.models` or
+configured OMP `modelRoles`, once per alias per process. Role hints run during
+registration even when OMP uses a warm model cache. Family targets come from
+the retained release list; SDK discovery alone does not emit alias warnings.
 
 SDK display names are preserved. The model picker exposes only SDK effort names
 that OMP represents natively (`low` through `xhigh`) and never translates them;

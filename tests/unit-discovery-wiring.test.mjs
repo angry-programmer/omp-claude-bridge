@@ -42,3 +42,24 @@ test("registered discovery receives alias opt-in and preferred window policy", (
 	assert.equal(defaults.catalog.some((model) => model.id === "sonnet"), false);
 	assert.equal(defaults.catalog.find((model) => model.id === "claude-sonnet-5-5").contextWindow, 1_000_000);
 });
+
+test("configured OMP role aliases get startup hints even without a discovery refresh", () => {
+	const child = spawnSync(process.execPath, ["--eval", `
+		import { mock } from "bun:test";
+		import { mkdtempSync, rmSync } from "node:fs";
+		import { tmpdir } from "node:os";
+		import { join } from "node:path";
+		const root = mkdtempSync(join(tmpdir(), "bridge-role-"));
+		try {
+			const { Settings } = await import("@oh-my-pi/pi-coding-agent");
+			await Settings.init({ cwd: root, agentDir: root, inMemory: true, overrides: { modelRoles: { default: "claude-bridge/sonnet", slow: "anthropic/opus" } } });
+			mock.module("./src/config.ts", () => ({ loadConfig: () => ({ provider: {} }) }));
+			const { default: extension } = await import("./src/index.ts");
+			// A warm OMP cache never invokes this callback.
+			extension({ on() {}, registerTool() {}, registerProvider() {} });
+		} finally { rmSync(root, { recursive: true, force: true }); }
+	`], { cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...process.env, CLAUDE_BRIDGE_DEBUG: "0" } });
+	assert.equal(child.status, 0, child.stderr);
+	assert.match(child.stderr, /hidden alias "sonnet".*claude-sonnet-5-5/);
+	assert.doesNotMatch(child.stderr, /hidden alias "opus"/);
+});
