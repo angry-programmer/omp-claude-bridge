@@ -86,6 +86,7 @@ export function loadConfig(cwd: string): Config {
 			allowFullMode,
 			defaultMode: defaultMode === "none" ? "none" : defaultMode === "full" && allowFullMode ? "full" : "read",
 			name: global.askClaude?.name,
+			label: global.askClaude?.label,
 			description: global.askClaude?.description,
 		},
 		provider: {

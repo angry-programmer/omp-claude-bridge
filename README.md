@@ -255,7 +255,7 @@ requirements and fail-closed diagnostics.
 | --- | ------- | ----------- |
 | `enabled` | `true` | Register AskClaude; projects may only disable it. |
 | `name` | `"AskClaude"` | Global-only OMP-side tool name. |
-| `label` | `"Ask Claude Code"` | Override the TUI label. |
+| `label` | `"Ask Claude Code"` | Global-only TUI label. |
 | `description` | — | Global-only tool description shown to the model. |
 | `defaultMode` | `"read"` | `"read"`, `"none"`, or authorized `"full"`; unauthorized or invalid values become `"read"`. |
 | `defaultIsolated` | `false` | Start each call in a fresh session. |
