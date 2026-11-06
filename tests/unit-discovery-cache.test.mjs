@@ -55,7 +55,7 @@ test("fallback reports snapshot age and rejects unsupported envelopes", async ()
 	try {
 		writeFileSync(path, JSON.stringify({ version: 1, savedAt: Date.now() - 120_000, models }));
 		assert.ok((await discoverProviderModels([], failure, path)).some((m) => m.id === "claude-future-6"));
-		assert.match(warnings[0], /last-good.*age 12[0-9]s/);
+		assert.ok(warnings.some((warning) => /last-good.*age 12[0-9]s/.test(warning)));
 		for (const snapshot of [
 			models,
 			{ version: 2, savedAt: Date.now(), models },
@@ -81,8 +81,7 @@ test("a snapshot save failure preserves successful discovery and cleans its temp
 	try {
 		const models = await discoverProviderModels([], success, path);
 		assert.ok(models.some((model) => model.id === "claude-future-6"));
-		assert.equal(warnings.length, 1);
-		assert.match(warnings[0], /could not save last-good model catalog/);
+		assert.ok(warnings.some((warning) => warning.includes("could not save last-good model catalog")));
 		assert.deepEqual(readdirSync(dir), ["catalog.json"]);
 		assert.equal(statSync(path).isDirectory(), true);
 	} finally { console.error = original; rmSync(dir, { recursive: true, force: true }); }

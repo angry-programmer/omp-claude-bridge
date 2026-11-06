@@ -161,3 +161,8 @@ test("projects may disable AskClaude or full mode, but cannot supply global iden
 	assert.equal(config.description, undefined);
 	assert.equal(configuredSection({ allowFullMode: true }, { defaultMode: "full" }, "askClaude").config.defaultMode, "full");
 });
+
+test("trustedEnv is an exact global-only name list", () => {
+	assert.deepEqual(configuredSection({}, { trustedEnv: ["ANTHROPIC_BASE_URL"] }).config.trustedEnv, []);
+	assert.deepEqual(configuredSection({ trustedEnv: ["HTTPS_PROXY", "*", 42] }, { trustedEnv: ["BASH_ENV"] }).config.trustedEnv, ["HTTPS_PROXY"]);
+});

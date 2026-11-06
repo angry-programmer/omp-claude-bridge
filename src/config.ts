@@ -30,6 +30,8 @@ export interface Config {
 		strictMcpConfig?: boolean;
 		/** Trusted global config only; ignored in project config. */
 		pathToClaudeCodeExecutable?: string;
+		/** Global-only exact environment names explicitly trusted in child processes. */
+		trustedEnv?: string[];
 		/**
 		 * Explicit model ids opt out of SDK discovery and stay on the static
 		 * metadata/context-window path. An omitted or empty list enables runtime
@@ -90,6 +92,7 @@ export function loadConfig(cwd: string): Config {
 			...global.provider,
 			...project.provider,
 			pathToClaudeCodeExecutable: global.provider?.pathToClaudeCodeExecutable,
+			trustedEnv: Array.isArray(global.provider?.trustedEnv) ? global.provider.trustedEnv.filter((name) => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) : [],
 			settingSources: projectSources === undefined ? trustedSources : trustedSources.filter((source) => projectSources.includes(source)),
 			strictMcpConfig: strictMcpConfig || project.provider?.strictMcpConfig === true,
 		},

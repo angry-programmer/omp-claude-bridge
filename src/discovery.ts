@@ -9,6 +9,7 @@ import { constants } from "node:fs";
 import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { buildClaudeEnv } from "./child-env.js";
 
 /** OMP aborts runtime provider discovery at 15 seconds; finish first. */
 export const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -18,6 +19,7 @@ type QueryFactory = (params: Parameters<typeof sdkQuery>[0]) => Query;
 export type ClaudeModelDiscoveryOptions = {
 	cwd?: string;
 	pathToClaudeCodeExecutable?: string;
+	trustedEnv?: string[];
 	timeoutMs?: number;
 	queryFn?: QueryFactory;
 };
@@ -50,11 +52,7 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 			persistSession: false,
 			permissionMode: "dontAsk",
 			settingSources: [],
-			env: {
-				...process.env,
-				CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-				ENABLE_CLAUDEAI_MCP_SERVERS: "0",
-			},
+			env: buildClaudeEnv("discovery", { cwd, trustedEnv: options.trustedEnv }),
 			...(options.pathToClaudeCodeExecutable
 				? { pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable }
 			: {}),

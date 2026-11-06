@@ -18,6 +18,7 @@ import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
 import { QueryContext, ctx } from "./query-state.js";
 import { loadConfig, type Config } from "./config.js";
+import { buildClaudeEnv } from "./child-env.js";
 import { extractAgentsAppend } from "./agents-md.js";
 import { jsonSchemaToZodShape } from "./typebox-to-zod.js";
 import { buildActionSummary, type ToolCallState } from "./askclaude-ui.js";
@@ -394,7 +395,8 @@ async function runIsolatedSummary(
 	try {
 		const promptText = extractIsolatedSummaryPrompt(context.messages);
 		const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
-		const claudeExecutable = loadConfig(cwd).provider?.pathToClaudeCodeExecutable;
+		const config = loadConfig(cwd).provider;
+		const claudeExecutable = config?.pathToClaudeCodeExecutable;
 		const cliModel = claudeCodeModelId(model, contextWindowSettings);
 		debug(`compact summary: spawn model=${cliModel} registeredModel=${model.id} promptLen=${promptText.length}`);
 
@@ -402,7 +404,7 @@ async function runIsolatedSummary(
 			prompt: promptText,
 			options: {
 				cwd,
-				env: { ...process.env, DISABLE_AUTO_COMPACT: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
+				env: buildClaudeEnv("summary", { cwd, trustedEnv: config?.trustedEnv }),
 				tools: [],
 				strictMcpConfig: true,
 				settingSources: [] as SettingSource[],
@@ -1329,7 +1331,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	// also autocompact would double-flush the prompt cache and races pi's
 	// threshold with CC's, including CC's anti-thrashing guard (issue #8).
 	// Manual /compact in CC still works (we never invoke it).
-	const childEnv = { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" };
+	const childEnv = buildClaudeEnv("generation", { cwd, trustedEnv: providerSettings.trustedEnv });
 	const queryOptions: NonNullable<Parameters<typeof query>[0]["options"]> = {
 		cwd,
 		env: childEnv,
@@ -1561,7 +1563,7 @@ async function promptAndWait(
 		prompt,
 		options: {
 			cwd,
-			env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "0", DISABLE_AUTO_COMPACT: "1" },
+			env: buildClaudeEnv("generation", { cwd, trustedEnv: providerSettings.trustedEnv }),
 			permissionMode: "bypassPermissions",
 			...(disallowedTools.length ? { disallowedTools } : {}),
 			...(effort ? { effort } : {}),
@@ -1788,6 +1790,7 @@ export default function (pi: ExtensionAPI) {
 	const fetchDynamicModels = async (_apiKey: string | undefined) => {
 		const projected = await discoverProviderModels(getModels("anthropic"), {
 			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
+			trustedEnv: providerSettings.trustedEnv,
 			includeAliases: providerSettings.includeAliases,
 			contextWindow: contextWindowSettings.contextWindow,
 			cwd: process.cwd(),

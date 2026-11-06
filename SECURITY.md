@@ -73,10 +73,40 @@ environment configuration; disabling strict MCP globally authorizes filesystem
 MCP server commands during provider generation. Do not enable those options for
 untrusted repositories. Cloud MCP remains disabled. The CLI and SDK themselves,
 the selected executable, OMP extensions, and tools the user authorizes remain
-trusted: this bridge is not an OS sandbox. Discovery and generation still inherit
-OMP's current process environment, which may contain cwd dotenv values loaded
-by Bun/OMP. This change does not sanitize that environment, secure executable
-resolution through `PATH`, or prevent OMP's own project extensions from loading.
-Use a trusted launcher environment and explicit trusted executable for untrusted
-repositories. Read-only AskClaude modes restrict model tools, not processes
-authorized by globally enabled settings/hooks.
+trusted: this bridge is not an OS sandbox. Read-only AskClaude modes restrict
+model tools, not processes authorized by globally enabled settings/hooks.
+
+## Child environment policy
+
+All SDK queries use one bridge environment builder. Discovery starts with only
+`PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TMPDIR`, `TERM`, and first-party auth:
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`. Auth values
+must come from the launcher, not project dotenv. Standard account-file login
+needs no token variable. Discovery does not implicitly opt into third-party cloud
+providers, proxies, or alternative credential directories.
+
+Provider generation, continuation, compact summaries and AskClaude retain the
+process environment except these denied names/patterns:
+`ANTHROPIC_*_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `*_PROXY`/`*_proxy`,
+`NODE_EXTRA_CA_CERTS`, `NODE_OPTIONS`, `BASH_ENV`, `ENV`,
+`CLAUDE_CODE_SHELL_PREFIX`, and `CLAUDE_CODE_USE_*`.
+Authoritative launcher values are preserved/restored for generation. Linux uses
+the original exec environment in `/proc/self/environ`, matching installed OMP's
+private launch-map implementation. OMP's public `filterChildShellEnv` additionally
+removes cwd dotenv values from discovery's baseline. Without authoritative
+provenance, denied values fail closed (unless dotenv loading was disabled at
+launch).
+
+Only the trusted global `provider.trustedEnv` list may re-allow exact variable
+names; project lists are ignored. This explicitly trusts the current value,
+including dotenv values, for generation **and discovery**. Never use it for
+untrusted endpoint, loader, proxy or auth values. `HOME` is pinned to the passwd
+account unless globally listed. Removed names are logged, never values.
+Bridge cloud-MCP/compaction/isolation switches remain enforced.
+
+The denylist is intentionally not an environment sandbox. Unlisted environment
+variables, `PATH` executable resolution, OMP's own extension/settings loading,
+Claude Code managed policy, and globally authorized settings remain trusted.
+Use a trusted launcher and explicit trusted executable for untrusted repositories.
+Upstream Claude Code environment additions require reviewing this policy.

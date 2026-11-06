@@ -139,7 +139,7 @@ test("dynamic retained releases offer context variants under each policy", () =>
 });
 
 for (const failure of ["throw", "empty", "timeout"]) {
-	test(`provider discovery ${failure}: returns retained exact metadata and one warning`, async () => {
+	test(`provider discovery ${failure}: reports fallback and returns retained exact metadata`, async () => {
 		const dir = mkdtempSync(join(tmpdir(), "bridge-discovery-"));
 		const warnings = [];
 		const original = console.error;
@@ -161,8 +161,7 @@ for (const failure of ["throw", "empty", "timeout"]) {
 			console.error = original;
 			rmSync(dir, { recursive: true, force: true });
 		}
-		assert.equal(warnings.length, 1);
-		assert.match(warnings[0], /retained exact catalog/);
+		assert.ok(warnings.some((warning) => warning.includes("retained exact catalog")));
 		assert.equal(models.find((m) => m.id === "claude-opus-5-5").contextWindow, 1_000_000);
 		assert.equal(models.find((m) => m.id === "claude-sonnet-5-5").maxTokens, 128_000);
 		assert.ok(models.every((m) => m.id.startsWith("claude-")));
