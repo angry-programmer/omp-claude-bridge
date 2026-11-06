@@ -231,7 +231,11 @@ export function projectSupportedModels(
 	piAiModels: readonly PiAiModel[] = [],
 	options: { includeAliases?: boolean; contextWindow?: ContextWindowMode } = {},
 ): ClaudeProviderModel[] {
-	const result = buildVariantModels(buildModels([...piAiModels]), { contextWindow: options.contextWindow ?? "auto" });
+	const explicitOneM = MODEL_IDS_IN_ORDER.filter((id) => id !== "claude-haiku-4-5").map((id) => `${id}[1m]`);
+	const result = buildVariantModels([
+		...buildModels([...piAiModels]),
+		...buildConfiguredModels(explicitOneM, piAiModels),
+	], { contextWindow: options.contextWindow ?? "auto" });
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
 		if (!info || typeof info.value !== "string" || !info.value) continue;

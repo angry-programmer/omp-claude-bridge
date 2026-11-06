@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive } from "../src/models.ts";
 import { discoverClaudeModels, discoverProviderModels } from "../src/discovery.ts";
 
@@ -138,6 +141,7 @@ test("dynamic retained releases offer context variants under each policy", () =>
 
 for (const failure of ["throw", "empty", "timeout"]) {
 	test(`provider discovery ${failure}: returns retained exact metadata and one warning`, async () => {
+		const dir = mkdtempSync(join(tmpdir(), "bridge-discovery-"));
 		const warnings = [];
 		const original = console.error;
 		console.error = (...args) => warnings.push(args.join(" "));
@@ -153,9 +157,10 @@ for (const failure of ["throw", "empty", "timeout"]) {
 					},
 					close() {},
 				}),
-			});
+			}, join(dir, "catalog.json"));
 		} finally {
 			console.error = original;
+			rmSync(dir, { recursive: true, force: true });
 		}
 		assert.equal(warnings.length, 1);
 		assert.match(warnings[0], /retained exact catalog/);

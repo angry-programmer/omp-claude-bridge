@@ -172,10 +172,17 @@ and uses the same retained metadata and context-window variants:
 }
 ```
 
-Discovery failure (including timeout or an empty SDK result) logs one warning
-per attempt and returns the retained exact catalog with known metadata and
-window variants. The callback cannot inspect OMP's cache state, so the same safe
-fallback applies on warm and cold discovery failures; it never restores aliases.
+Successful discovery atomically saves the SDK catalog to
+`claude-bridge-models.json` under OMP's agent directory. A failed attempt never
+writes this file: it logs one warning and reprojects the last-good catalog with
+the current alias/window settings, or uses retained exact ids if no readable
+snapshot exists. Every retained 1M-capable model includes its explicit `[1m]`
+selector even in cold fallback.
+
+OMP caches any returned discovery result, including fallback, for 24 hours.
+It exposes no uncached-fallback return type. The bridge snapshot prevents a
+temporary failure from replacing discovery-only ids with a reduced retained
+catalog once a successful bridge discovery has saved them.
 Bash commands issued by Claude Code get a 120-second default timeout (matching Claude Code's default), since OMP's bash has no timeout by default.
 
 ## AskClaude tool
@@ -246,7 +253,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 
 ## How it works
 
-OMP's built-in tools are bridged to Claude Code and back, so from your side it behaves like any other OMP provider. With no explicit `provider.models`, registration uses OMP's `fetchDynamicModels` hook; the hook runs an initialization-only Agent SDK query and OMP stores the successful catalog in its SQLite cache for 24 hours. Exact discovered selectors enrich the retained catalog in [`src/models.ts`](src/models.ts); aliases require opt-in. Explicit static configuration bypasses discovery. Failed discovery supplies the retained exact catalog with one warning per attempt.
+OMP's built-in tools are bridged to Claude Code and back. Without explicit `provider.models`, OMP invokes an initialization-only Agent SDK query through `fetchDynamicModels` and caches the returned catalog for 24 hours. Exact discovered selectors enrich the retained catalog in [`src/models.ts`](src/models.ts); aliases require opt-in. Explicit static configuration bypasses discovery. Failed discovery reuses the bridge-owned last-good snapshot before the retained table.
 
 ## Debugging
 

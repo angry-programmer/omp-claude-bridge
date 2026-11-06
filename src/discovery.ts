@@ -5,6 +5,10 @@ import {
 	type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
 import { projectSupportedModels, type ContextWindowMode } from "./models.js";
+import { getAgentDir } from "@oh-my-pi/pi-utils";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 /** OMP aborts runtime provider discovery at 15 seconds; finish first. */
 export const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -75,12 +79,38 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 export async function discoverProviderModels(
 	piAiModels: Parameters<typeof projectSupportedModels>[1] = [],
 	options: ClaudeModelDiscoveryOptions & { includeAliases?: boolean; contextWindow?: ContextWindowMode } = {},
+	cacheFile = join(getAgentDir(), "claude-bridge-models.json"),
 ) {
+	let supported: ModelInfo[];
 	try {
-		return projectSupportedModels(await discoverClaudeModels(options), piAiModels, options);
+		supported = await discoverClaudeModels(options);
 	} catch (error) {
+		let models;
+		let source = "retained exact catalog";
+		try {
+			const saved = JSON.parse(await readFile(cacheFile, "utf8"));
+			if (!Array.isArray(saved) || saved.length === 0 || !saved.every((entry) => typeof entry?.value === "string")) {
+				throw new Error("Invalid bridge model cache");
+			}
+			models = projectSupportedModels(saved, piAiModels, options);
+			source = "last-good exact catalog";
+		} catch {
+			models = projectSupportedModels([], piAiModels, { contextWindow: options.contextWindow });
+		}
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(`claude-bridge: model discovery failed; using retained exact catalog: ${message}`);
-		return projectSupportedModels([], piAiModels, { contextWindow: options.contextWindow });
+		console.error(`claude-bridge: model discovery failed; using ${source}: ${message}`);
+		return models;
 	}
+	const models = projectSupportedModels(supported, piAiModels, options);
+	const temporary = `${cacheFile}.${randomUUID()}.tmp`;
+	try {
+		await mkdir(dirname(cacheFile), { recursive: true, mode: 0o700 });
+		await writeFile(temporary, JSON.stringify(supported), { mode: 0o600 });
+		await rename(temporary, cacheFile);
+	} catch (error) {
+		console.error(`claude-bridge: could not save last-good model catalog: ${error}`);
+	} finally {
+		await rm(temporary, { force: true }).catch(() => {});
+	}
+	return models;
 }

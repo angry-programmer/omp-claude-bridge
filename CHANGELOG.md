@@ -17,8 +17,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - Dynamic catalogs use OMP's `fetchDynamicModels` SQLite cache (24-hour TTL).
-  Failed discovery now logs one warning per attempt and supplies retained exact
-  ids with known metadata, including when the cache is cold.
+  Failed discovery logs one warning and reuses a bridge-owned last-good snapshot
+  before the retained table. Only successful SDK discovery writes the snapshot.
+  Retained explicit `[1m]` selectors also remain resolvable in cold fallback.
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
