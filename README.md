@@ -226,7 +226,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 ## Configuration reference
 
-Trusted config is read from the account's passwd home at `.omp/agent/claude-bridge.json`; project config is `.omp/claude-bridge.json`. `HOME`, cwd dotenv and OMP directory/profile overrides cannot redirect the trusted POSIX file. A native/passwd home mismatch warns. Projects may override ordinary settings but only tighten settings/MCP and AskClaude capability ceilings. Executable, tool name/description, and `provider.trustedEnv` are global-only. See [SECURITY.md](SECURITY.md) for child-environment filtering, launcher provenance, and remaining trust limits. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
+Trusted config is read from the account's passwd home at `.omp/agent/claude-bridge.json`; project config is `.omp/claude-bridge.json`. `HOME`, cwd dotenv and OMP directory/profile overrides cannot redirect the trusted POSIX file. A native/passwd home mismatch warns. Projects may override ordinary settings but only tighten settings/MCP and AskClaude capability ceilings. Executable, tool name/label/description, and `provider.trustedEnv` are global-only. Global read/parse errors other than a missing file disable AskClaude/full mode and enforce empty settings sources and strict MCP; protected account/root-owned global symlink targets are supported. See [SECURITY.md](SECURITY.md) for child-environment filtering, launcher provenance, and remaining trust limits. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
 Migration: Claude children now use the passwd account's HOME for credentials.
 Custom-HOME users must migrate their credential store or explicitly trust a
@@ -273,7 +273,7 @@ requirements and fail-closed diagnostics.
 | `settingSources` | `[]` | Global generation trust ceiling for Claude Code filesystem settings/hooks; projects may only remove sources. Discovery always uses `[]`. |
 | `strictMcpConfig` | `true` | Block filesystem MCP. Only global config can disable it; projects may enable it. Discovery and AskClaude always stay strict. Cloud MCP is always blocked. |
 | `pathToClaudeCodeExecutable` | — | Trusted global config only. Path to the `claude` binary for discovery and requests; project values are ignored. |
-| `trustedEnv` | `[]` | Global-only exact names allowed from OMP's provenance-filtered child environment, including discovery. Never permits cwd dotenv values; a safe launcher value restored by OMP may survive instead. |
+| `trustedEnv` | `[]` | Global-only exact names allowed from OMP's provenance-filtered child environment, including discovery. Rejects same-name dotenv values under OMP's parser/expansion rules; a safe restored launcher value or an unrelated name with the same value may survive. See SECURITY.md for parser limits and the PATH fallback. |
 
 ## How it works
 

@@ -1,7 +1,11 @@
-import { filterChildShellEnv, getDotenvEnvValues, parseEnvFile } from "@oh-my-pi/pi-utils";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { filterChildShellEnv, parseEnvFile } from "@oh-my-pi/pi-utils";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { readTextFile } from "./read-json-file.js";
 import { TRUSTED_HOME } from "./trusted-paths.js";
+
+const launchCwd = process.cwd();
 
 function environmentName(name: string): string {
 	return process.platform === "win32" ? name.toUpperCase() : name;
@@ -33,19 +37,64 @@ function denied(name: string): boolean {
 		/_PROXY$/i.test(name) || /^(CLAUDE_CODE_USE_|DYLD_|GIT_CONFIG_|OTEL_)/.test(name) || deniedNames.includes(name);
 }
 
-function projectDotenv(cwd: string, base: Record<string, string>) {
-	const names = new Set<string>();
-	// Include Bun's default mode and both launch/current modes: NODE_ENV may
-	// itself have been changed by dotenv or by a parent that preloaded it.
-	const modes = new Set(["development", launcher.get("NODE_ENV"), base.NODE_ENV, process.env.NODE_ENV]);
-	const files = [".env", ".env.local"];
-	for (const mode of modes) if (mode) files.push(`.env.${mode}`, `.env.${mode}.local`);
-	const values = new Set(getDotenvEnvValues(cwd, process.env));
-	for (const file of files) for (const [name, value] of Object.entries(parseEnvFile(join(cwd, file)))) {
-		names.add(environmentName(name));
-		values.add(value);
+function projectEnvironment(cwd: string) {
+	const modes = new Set(["development"]);
+	for (const value of [launcher.get("NODE_ENV"), process.env.NODE_ENV]) {
+		if (value === undefined) continue;
+		if (!/^[A-Za-z0-9_-]{1,32}$/.test(value)) throw new Error("claude-bridge: NODE_ENV is invalid; refusing dotenv probing");
+		modes.add(value);
 	}
-	return { names, values };
+	const files = [".env", ".env.local"];
+	for (const mode of modes) files.push(`.env.${mode}`, `.env.${mode}.local`);
+	const names = new Set<string>();
+	const values = new Map<string, Set<string>>();
+	let base: Record<string, string> | undefined;
+	// OMP's parser/filter reads whole files and follows links. Give it a private
+	// bounded snapshot, not attacker-controlled paths that can change after a check.
+	const snapshot = mkdtempSync(join(tmpdir(), "claude-bridge-env-"));
+	try {
+		for (const dir of new Set([launchCwd, resolve(cwd)])) {
+			const view = join(snapshot, base === undefined ? "launch" : "child");
+			mkdirSync(view, { mode: 0o700 });
+			for (const file of files) {
+				let text: string;
+				try { text = readTextFile(join(dir, file)); }
+				catch (error) {
+					if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+					throw new Error(`claude-bridge: cannot safely read dotenv ${join(dir, file)}`);
+				}
+				const safePath = join(view, file);
+				writeFileSync(safePath, text, { mode: 0o600 });
+				const expanded: Record<string, string> = {};
+				for (const [key, value] of Object.entries(parseEnvFile(safePath))) {
+					// Same expansion as OMP's env.ts; keep values keyed by name.
+					expanded[key] = value.replace(
+						/(\\)?\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+						(match, escaped: string | undefined, braced: string | undefined, bare: string | undefined) =>
+							escaped ? match.slice(1) : process.env[braced ?? bare!] ?? expanded[braced ?? bare!] ?? "",
+					);
+					const name = environmentName(key);
+					names.add(name);
+					const matches = values.get(name) ?? new Set<string>();
+					matches.add(value); matches.add(expanded[key]);
+					values.set(name, matches);
+				}
+			}
+			const filtered: Record<string, string> = {};
+			for (const [name, value] of Object.entries(filterChildShellEnv(process.env, view))) filtered[environmentName(name)] = value;
+			if (base === undefined) base = filtered;
+			else for (const [name, value] of Object.entries(base)) {
+				if (filtered[name] === undefined) delete base[name];
+				else if (filtered[name] !== value) {
+					// Both candidates came through OMP; prefer its restored launcher
+					// value, otherwise reject ambiguous values across the two cwds.
+					if (filtered[name] === launcher.get(name)) base[name] = filtered[name];
+					else if (value !== launcher.get(name)) delete base[name];
+				}
+			}
+		}
+		return { base: base!, names, values };
+	} finally { rmSync(snapshot, { recursive: true, force: true }); }
 }
 
 export function buildClaudeEnv(
@@ -54,18 +103,22 @@ export function buildClaudeEnv(
 ): Record<string, string> {
 	const cwd = options.cwd ?? process.cwd();
 	const trusted = new Set(options.trustedEnv?.map(environmentName) ?? []);
-	const base: Record<string, string> = {};
-	for (const [name, value] of Object.entries(filterChildShellEnv(process.env, cwd))) base[environmentName(name)] = value;
-	const project = projectDotenv(cwd, base);
+	const project = projectEnvironment(cwd);
+	const base = project.base;
 	const result: Record<string, string> = {};
 	for (const [name, value] of Object.entries(base)) {
-		// No mode or trust exception may take a value supplied by cwd dotenv,
-		// including dotenv that was already loaded by a parent process.
-		if (project.values.has(value) && (project.names.has(name) || trusted.has(name))) continue;
+		// Match only this name's raw/OMP-expanded values, never an unrelated
+		// dotenv value equal to a trusted launcher's proxy or ordinary variable.
+		if (project.values.get(name)?.has(value)) continue;
 		if (trusted.has(name)) { result[name] = value; continue; }
 		if (denied(name) && (project.names.has(name) || launcher.get(name) !== value)) continue;
 		if (mode === "discovery" && !/^(PATH|HOME|USER|LANG|TMPDIR|TERM|LC_.*)$/.test(name) && !authNames.includes(name)) continue;
 		result[name] = value;
+	}
+	if (!result.PATH) {
+		const original = launcher.get("PATH");
+		result.PATH = original || (process.platform === "win32" ? "C:\\Windows\\System32;C:\\Windows" : "/usr/local/bin:/usr/bin:/bin");
+		console.error(`claude-bridge: PATH removed or empty; using ${original ? "launcher" : "fixed system"} PATH fallback`);
 	}
 	// HOME selects Claude's credential store too. Rejected overrides retain the
 	// passwd account pin, even when HOME was explicitly named in trustedEnv.

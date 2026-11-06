@@ -48,11 +48,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   project config. Unauthorized or malformed defaults become read mode; explicit
   unauthorized full-mode execution is rejected.
 - Every Claude subprocess starts from OMP's provenance-filtered child environment,
-  removing project dotenv additions regardless of name. A second denylist covers
-  endpoint/auth/proxy, native and JS loaders, shell startup, Git, telemetry and
-  TLS overrides. Launcher and global trustedEnv exceptions use only filtered
-  values; neither can restore cwd dotenv values or bless a parent-preloaded
-  denied name without safe explicit global trust. Logging contains names only.
+  removing project dotenv additions regardless of name under OMP's parser.
+  Bridge/child cwd dotenv reads are bounded, regular-file-only and no-follow
+  where supported; OMP receives private snapshots to avoid an unbounded reread
+  of mutable source paths. Invalid NODE_ENV modes are rejected before probing.
+  A second denylist covers endpoint/auth/proxy, native and JS loaders, shell
+  startup, Git, telemetry and TLS overrides. Launcher and global trustedEnv
+  exceptions use only filtered values and same-name dotenv matches; unrelated
+  value collisions no longer discard trusted proxies or ordinary variables.
+  Missing PATH warns and falls back to launcher/system PATH. Logging contains
+  names only; SECURITY.md documents parser and platform limits.
 - Executable paths are honored only from global bridge config. Trusted global
   config and snapshot use the passwd home, independent of inherited/cwd HOME
   and OMP agent/config/profile overrides; native-home mismatches warn.

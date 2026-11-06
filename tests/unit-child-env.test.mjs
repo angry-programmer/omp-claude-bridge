@@ -1,19 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const modulePath = new URL("../src/child-env.ts", import.meta.url).pathname;
 const denied = ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "http_proxy", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_CODE_USE_BEDROCK", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "ZDOTDIR", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_SSH_COMMAND", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_LOG_USER_PROMPTS", "CLAUDE_CODE_ENABLE_TELEMETRY", "NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE"];
-function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, noProvenance = false, platform = noProvenance ? "darwin" : undefined } = {}) {
+function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRIDGE_PROJECT_VALUE: "project-secret-marker" }, dotenvFiles = {}, childDotenv, noProvenance = false, platform = noProvenance ? "darwin" : undefined } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "bridge-env-"));
 	const files = { ".env": dotenv, ...dotenvFiles };
 	for (const [name, values] of Object.entries(files)) writeFileSync(join(root, name), Object.entries(values).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n"));
+	const cwd = childDotenv === undefined ? root : join(root, "child");
+	if (childDotenv !== undefined) {
+		mkdirSync(cwd);
+		writeFileSync(join(cwd, ".env"), Object.entries(childDotenv).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join("\n"));
+	}
 	const env = { ...process.env, ...launcher };
 	for (const key of [...denied, "BRIDGE_PROJECT_VALUE", ...Object.keys(runtime), ...Object.values(files).flatMap(Object.keys)]) if (!(key in launcher)) delete env[key];
-	const selectedNames = [...new Set([...denied, ...Object.keys(launcher), ...Object.keys(runtime), ...Object.values(files).flatMap(Object.keys), "ENABLE_CLAUDEAI_MCP_SERVERS"])];
+	const selectedNames = [...new Set([...denied, ...Object.keys(launcher), ...Object.keys(runtime), ...Object.values(files).flatMap(Object.keys), ...Object.keys(childDotenv ?? {}), "ENABLE_CLAUDEAI_MCP_SERVERS"])];
 	try {
 		const child = spawnSync(process.execPath, ["--eval", `
 			Object.assign(process.env, ${JSON.stringify(runtime)});
@@ -21,7 +26,7 @@ function childEnv({ trustedEnv = [], launcher = {}, runtime = {}, dotenv = { BRI
 			${noProvenance ? 'process.execArgv.push("--no-env-file");' : ""}
 			const { buildClaudeEnv } = await import(${JSON.stringify(modulePath)});
 			const selected = env => Object.fromEntries(${JSON.stringify(selectedNames)}.filter(key => env[key] !== undefined).map(key => [key, env[key]]));
-			console.log(JSON.stringify(Object.fromEntries(["generation", "discovery", "summary"].map(mode => [mode, selected(buildClaudeEnv(mode, { trustedEnv: ${JSON.stringify(trustedEnv)} }))]))));
+			console.log(JSON.stringify(Object.fromEntries(["generation", "discovery", "summary"].map(mode => [mode, selected(buildClaudeEnv(mode, { cwd: ${JSON.stringify(cwd)}, trustedEnv: ${JSON.stringify(trustedEnv)} }))]))));
 		`], { cwd: root, env, encoding: "utf8" });
 		assert.equal(child.status, 0, child.stderr);
 		return { ...JSON.parse(child.stdout), warnings: child.stderr };
@@ -103,5 +108,30 @@ test("Windows dotenv-name matching cannot be bypassed with another case", () => 
 	for (const mode of ["generation", "discovery", "summary"]) {
 		assert.equal(result[mode].ANTHROPIC_API_KEY, undefined);
 		assert.equal(result[mode].anthropic_api_key, undefined);
+	}
+});
+
+test("generation preserves ordinary launcher variables and unrelated trusted proxy values", () => {
+	const launcher = { PATH: "/usr/bin:/bin", USER: "bridge-user", LANG: "C.UTF-8", TMPDIR: tmpdir(), SHELL: "/bin/sh", SSH_AUTH_SOCK: "/tmp/bridge-test.sock", HTTPS_PROXY: "http://corporate.invalid:3128" };
+	const result = childEnv({ launcher, trustedEnv: ["HTTPS_PROXY"], dotenv: { PROXY: launcher.HTTPS_PROXY } });
+	for (const name of Object.keys(launcher)) assert.equal(result.generation[name], launcher[name], name);
+});
+
+test("PATH defined identically by dotenv falls back to the launcher path with a warning", () => {
+	const { generation, warnings } = childEnv({ launcher: { PATH: "/usr/bin:/bin" }, dotenv: { PATH: "/usr/bin:/bin" } });
+	assert.equal(generation.PATH, "/usr/bin:/bin");
+	assert.match(warnings, /PATH.*fallback/i);
+});
+
+test("a non-denied launcher PATH overrides a different dotenv PATH", () => {
+	const result = childEnv({ launcher: { PATH: "/usr/bin:/bin" }, runtime: { PATH: "./untrusted-bin" }, dotenv: { PATH: "./untrusted-bin" } });
+	assert.equal(result.generation.PATH, "/usr/bin:/bin");
+});
+
+test("a child cwd different from launch cwd excludes dotenv values from both", () => {
+	const result = childEnv({ childDotenv: { CHILD_PROJECT_VALUE: "child-secret-marker" }, runtime: { CHILD_PROJECT_VALUE: "child-secret-marker" } });
+	for (const mode of ["generation", "discovery", "summary"]) {
+		assert.equal(result[mode].BRIDGE_PROJECT_VALUE, undefined, mode);
+		assert.equal(result[mode].CHILD_PROJECT_VALUE, undefined, mode);
 	}
 });
