@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Exact-only catalogs by default; `provider.includeAliases: true` opts into
+  non-versioned SDK aliases, including aliases in explicit static lists.
 - Runtime model discovery through the official Claude Agent SDK
   `supportedModels()` catalog. SDK family aliases route unchanged to Claude
   Code's latest model, while retained versioned selectors such as

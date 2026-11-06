@@ -1708,7 +1708,7 @@ export default function (pi: ExtensionAPI) {
 	usingStaticModelConfig = explicitModelIds.length > 0;
 	setDynamicRuntimeCatalogActive(!usingStaticModelConfig);
 	configuredModels = usingStaticModelConfig
-		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic")), contextWindowSettings)
+		? buildVariantModels(buildConfiguredModels(explicitModelIds, getModels("anthropic"), providerSettings), contextWindowSettings)
 		: [];
 	// OMP owns providerSessionState maps and closes their entries with the
 	// owning session. AskClaude does not receive that map from tool execution,
@@ -1779,7 +1779,7 @@ export default function (pi: ExtensionAPI) {
 			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
 			settingSources: providerSettings.settingSources,
 		});
-		const projected = projectSupportedModels(discovered, getModels("anthropic"));
+		const projected = projectSupportedModels(discovered, getModels("anthropic"), providerSettings);
 		dynamicModels = projected.map((model) => ({ id: model.id }));
 		return projected;
 	};

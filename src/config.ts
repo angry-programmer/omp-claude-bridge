@@ -33,6 +33,8 @@ export interface Config {
 		 * discovery through Claude Agent SDK supportedModels().
 		 */
 		models?: string[];
+		/** Expose non-versioned SDK aliases in the catalog (default false). */
+		includeAliases?: boolean;
 		// Force the Claude Code context window for every model:
 		//   "auto" (default) - per-model policy, "1m" - force 1M, "200k" - force 200K.
 		contextWindow?: ContextWindowMode;

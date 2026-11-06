@@ -6,6 +6,7 @@
   },
   "provider": {
     "contextWindow": "auto",
+    "includeAliases": false,
     "strictMcpConfig": true
   }
 }

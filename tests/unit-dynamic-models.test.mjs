@@ -55,7 +55,7 @@ test("combines retained versions with exact latest-family SDK aliases", () => {
 		{ value: "sonnet", resolvedModel: "claude-sonnet-5", displayName: "Sonnet", supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
 		{ value: "fable", resolvedModel: "claude-fable-5", displayName: "Fable", supportedEffortLevels: ["low", "high", "max"] },
 		{ value: "claude-fable-5-1[1m]", displayName: "Fable 5.1", supportedEffortLevels: ["low", "high"] },
-	], PI_MODELS);
+	], PI_MODELS, { includeAliases: true });
 	assert.deepEqual(models.slice(0, MODEL_IDS_IN_ORDER.length).map((model) => model.id), [...MODEL_IDS_IN_ORDER]);
 	assert.deepEqual(models.slice(MODEL_IDS_IN_ORDER.length).map((model) => model.id), [
 		"default",
@@ -98,7 +98,7 @@ test("exposes newly resolved SDK models with canonical metadata without a hardco
 			supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
 			supportsAdaptiveThinking: true,
 		},
-	], [...PI_MODELS, opus55]);
+	], [...PI_MODELS, opus55], { includeAliases: true });
 
 	for (const id of ["default", "opus[1m]", "claude-opus-5-5[1m]"]) {
 		const model = models.find((entry) => entry.id === id);
@@ -134,7 +134,7 @@ test("falls back to canonical thinking metadata when SDK capabilities are omitte
 	};
 	const models = projectSupportedModels([
 		{ value: "latest-opus", resolvedModel: "claude-opus-5-5[1m]" },
-	], [...PI_MODELS, opus55]);
+	], [...PI_MODELS, opus55], { includeAliases: true });
 
 	for (const id of ["latest-opus", "claude-opus-5-5[1m]"]) {
 		const model = models.find((entry) => entry.id === id);
@@ -149,7 +149,7 @@ test("bare SDK selectors inherit matched canonical metadata and explicit [1m] st
 	const models = projectSupportedModels([
 		{ value: "fable", resolvedModel: "claude-fable-5" },
 		{ value: "claude-fable-5[1m]", resolvedModel: "claude-fable-5" },
-	], metadata);
+	], metadata, { includeAliases: true });
 	assert.equal(models.find((model) => model.id === "fable").contextWindow, 1_000_000);
 	assert.equal(models.find((model) => model.id === "claude-fable-5[1m]").contextWindow, 1_000_000);
 });
@@ -158,7 +158,7 @@ test("preserves exact OMP-supported effort names without applying effort maps", 
 	const models = projectSupportedModels([
 		{ value: "opus", supportedEffortLevels: ["low", "xhigh", "max"] },
 		{ value: "max-only", supportsEffort: true, supportedEffortLevels: ["max"] },
-	], PI_MODELS);
+	], PI_MODELS, { includeAliases: true });
 	assert.deepEqual(models.find((model) => model.id === "opus").thinking.efforts, ["low", "xhigh"]);
 	assert.equal(models.find((model) => model.id === "max-only").thinking, undefined);
 	const retained = models.find((model) => model.id === "claude-opus-4-8");
@@ -181,7 +181,7 @@ test("dynamic routing keeps aliases and retained versions exact", () => {
 });
 
 test("unknown runtime entries use conservative metadata without inventing ids", () => {
-	const models = projectSupportedModels([{ value: "future-model", displayName: "Future" }]);
+	const models = projectSupportedModels([{ value: "future-model", displayName: "Future" }], [], { includeAliases: true });
 	const model = models.find((entry) => entry.id === "future-model");
 	assert.equal(model.id, "future-model");
 	assert.equal(model.contextWindow, 128_000);
@@ -248,7 +248,7 @@ test("initialization-only discovery closes on timeout and SDK failure", async ()
 });
 
 test("explicit configured ids remain a static fallback", () => {
-	const [model] = buildConfiguredModels(["local-alias"], PI_MODELS);
+	const [model] = buildConfiguredModels(["local-alias"], PI_MODELS, { includeAliases: true });
 	assert.equal(model.id, "local-alias");
 	assert.equal(model.contextWindow, 200_000);
 });
@@ -260,4 +260,33 @@ test("explicit configured [1m] ids keep exact routing and 1M metadata", () => {
 	assert.equal(registered.contextWindow, 1_000_000);
 	assert.equal(registered.maxTokens, 128_000);
 	assert.equal(claudeCodeModelId(registered, SETTINGS), "claude-fable-5-1[1m]");
+});
+
+test("hides unresolved aliases but exposes exact SDK resolutions by default", () => {
+	const models = projectSupportedModels([
+		{ value: "opus", resolvedModel: "claude-opus-5-5" },
+		{ value: "sonnet", resolvedModel: "claude-sonnet-5-5" },
+		{ value: "haiku", resolvedModel: "claude-haiku-5-5" },
+		{ value: "default" },
+		{ value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" },
+	]);
+	for (const alias of ["opus", "sonnet", "haiku", "default", "opus[1m]"]) {
+		assert.equal(models.some((model) => model.id === alias), false);
+	}
+	for (const id of ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5[1m]"]) {
+		assert.ok(models.some((model) => model.id === id));
+	}
+});
+
+test("only includes aliases with explicit opt-in", () => {
+	const models = projectSupportedModels([
+		{ value: "sonnet", resolvedModel: "claude-sonnet-5-5" },
+	], [], { includeAliases: true });
+	assert.ok(models.some((model) => model.id === "sonnet"));
+	assert.ok(models.some((model) => model.id === "claude-sonnet-5-5"));
+});
+
+test("static lists hide aliases unless explicitly enabled", () => {
+	assert.deepEqual(buildConfiguredModels(["sonnet", "claude-sonnet-5"], PI_MODELS).map((m) => m.id), ["claude-sonnet-5"]);
+	assert.deepEqual(buildConfiguredModels(["sonnet"], PI_MODELS, { includeAliases: true }).map((m) => m.id), ["sonnet"]);
 });

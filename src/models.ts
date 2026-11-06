@@ -123,10 +123,12 @@ export function buildModels<T extends PiAiModel>(piAiModels: T[]): ClaudeProvide
 }
 
 export function buildConfiguredModels<T extends PiAiModel>(
+	// Non-versioned selectors are deliberately opt-in, including static lists.
 	ids: readonly string[],
 	piAiModels: readonly T[],
+	options: { includeAliases?: boolean } = {},
 ): ClaudeProviderModel[] {
-	return ids.map((id) => {
+	return ids.filter((id) => options.includeAliases === true || isExactModelId(id)).map((id) => {
 		const source = findPiAiMetadata({ value: id }, piAiModels);
 		return metadataModel(id, source, /\[1m\]$/i.test(id));
 	});
@@ -135,6 +137,10 @@ export function buildConfiguredModels<T extends PiAiModel>(
 const DEFAULT_DYNAMIC_CONTEXT_WINDOW = 128_000;
 const DEFAULT_DYNAMIC_MAX_TOKENS = 16_384;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+export function isExactModelId(id: string): boolean {
+	return /^claude-.+-\d/.test(id);
+}
 
 function stripOneMillionSuffix(id: string): string {
 	return id.replace(/\[1m\]$/i, "");
@@ -196,25 +202,25 @@ function projectDiscoveredModel(
 
 
 /**
- * Project SDK aliases and their exact resolved selectors after the retained
- * version entries. Selectors are never rewritten or given inherited pi-ai
- * effort mappings. Duplicate selectors are dropped on first occurrence.
+ * Project exact SDK selectors after the retained versions. Non-versioned aliases
+ * require explicit opt-in. Duplicate selectors are dropped on first occurrence.
  */
 export function projectSupportedModels(
 	supportedModels: readonly ClaudeSupportedModel[],
 	piAiModels: readonly PiAiModel[] = [],
+	options: { includeAliases?: boolean } = {},
 ): ClaudeProviderModel[] {
 	const result = buildModels([...piAiModels]);
 	const seen = new Set(result.map((model) => model.id));
 	for (const info of supportedModels) {
 		if (!info || typeof info.value !== "string" || !info.value) continue;
-		if (!seen.has(info.value)) {
+		if ((options.includeAliases === true || isExactModelId(info.value)) && !seen.has(info.value)) {
 			seen.add(info.value);
 			result.push(projectDiscoveredModel(info, info.value, piAiModels, false));
 		}
 
 		const resolvedModel = info.resolvedModel;
-		if (typeof resolvedModel !== "string" || !resolvedModel || seen.has(resolvedModel)) continue;
+		if (typeof resolvedModel !== "string" || !isExactModelId(resolvedModel) || seen.has(resolvedModel)) continue;
 		seen.add(resolvedModel);
 		result.push(projectDiscoveredModel(info, resolvedModel, piAiModels, true));
 	}

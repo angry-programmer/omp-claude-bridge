@@ -147,11 +147,16 @@ The `/model` picker combines two sources:
 - Retained versioned selectors such as `claude-opus-4-8`,
   `claude-sonnet-4-6`, and `claude-fable-5`. These route to that exact model
   version.
-- Claude Code's official Agent SDK `supportedModels()` catalog. Family aliases
-  such as `opus[1m]`, `sonnet`, and `fable` route unchanged, so Claude Code—not
-  the bridge—selects the latest version. Each unique SDK `resolvedModel` is also
-  exposed as an exact selector (for example `claude-opus-5-5[1m]`), so new
-  releases appear without another hardcoded bridge update.
+- Claude Code's official Agent SDK `supportedModels()` catalog. Exact `value`
+  and `resolvedModel` selectors appear automatically as new releases arrive.
+  Non-versioned aliases (`opus`, `sonnet`, `haiku`, `fable`, `default`, and
+  their `[1m]` forms) are hidden unless `provider.includeAliases: true`.
+
+Alias hiding also applies to explicit `provider.models` lists. An OMP role such
+as `claude-bridge/sonnet` cannot resolve a hidden selector: migrate it to an
+exact id, or enable `provider.includeAliases` (and include it in your static
+list if using one). Opted-in aliases route unchanged through Claude Code, so
+their resolved version can change. AskClaude can still send an alias directly.
 
 SDK display names are preserved. The model picker exposes only SDK effort names
 that OMP represents natively (`low` through `xhigh`) and never translates them;
