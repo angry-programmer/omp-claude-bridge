@@ -192,3 +192,21 @@ test("exact Sonnet 5 wins over earlier Sonnet 5.5 while short names still match"
 	assert.equal(resolveModel(models, "CLAUDE-SONNET-5").id, "claude-sonnet-5");
 	assert.equal(resolveModel(models, "sonnet").id, "claude-sonnet-5-5");
 });
+
+test("discovery disables filesystem and cloud MCP initialization", async () => {
+	let params;
+	let closed = false;
+	await discoverClaudeModels({
+		queryFn: (input) => {
+			params = input;
+			return {
+				supportedModels: async () => [{ value: "claude-opus-5-5" }],
+				close() { closed = true; },
+			};
+		},
+	});
+	assert.equal(params.options.strictMcpConfig, true);
+	assert.deepEqual(params.options.mcpServers, {});
+	assert.equal(params.options.env.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
+	assert.equal(closed, true);
+});
