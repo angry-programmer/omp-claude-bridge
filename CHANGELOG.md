@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   use current exact ids for new roles. Sonnet 5 and Haiku 4.5 remain retained.
 
 ### Fixed
+- Discovery receives only its named provider options, never arbitrary project
+  JSON keys such as the internal query function or timeout override.
 - Moving `-latest` selectors are excluded even with alias opt-in and rejected
   by direct routing; use a versioned exact id.
 - Unsupported bridge window suffixes fail clearly before reaching Claude Code,

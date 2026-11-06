@@ -1779,7 +1779,9 @@ export default function (pi: ExtensionAPI) {
 
 	const fetchDynamicModels = async (_apiKey: string | undefined) => {
 		const projected = await discoverProviderModels(getModels("anthropic"), {
-			...providerSettings,
+			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
+			settingSources: providerSettings.settingSources,
+			includeAliases: providerSettings.includeAliases,
 			contextWindow: contextWindowSettings.contextWindow,
 			cwd: process.cwd(),
 		});
