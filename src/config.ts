@@ -1,13 +1,12 @@
-// User-facing extension config. Loaded once at extension registration from
-// ~/.omp/agent/claude-bridge.json and the project OMP config directory, project
-// overriding global. Missing or unparseable files are ignored (error to
-// console.error, empty object returned) so the extension always starts.
+// User-facing extension config. Loaded at extension registration from OMP's
+// agent directory and the project's OMP config directory. Project settings
+// override global settings except the trusted executable path. Missing or
+// unparseable files are ignored so the extension always starts.
 
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { ContextWindowMode } from "./models.js";
-import { CONFIG_DIR_NAME } from "@oh-my-pi/pi-utils";
+import { CONFIG_DIR_NAME, getAgentDir } from "@oh-my-pi/pi-utils";
 import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 
 export interface Config {
@@ -26,6 +25,7 @@ export interface Config {
 		appendSystemPrompt?: boolean;
 		settingSources?: SettingSource[];
 		strictMcpConfig?: boolean;
+		/** Trusted global config only; ignored in project config. */
 		pathToClaudeCodeExecutable?: string;
 		/**
 		 * Explicit model ids opt out of SDK discovery and stay on the static
@@ -52,10 +52,14 @@ export function tryParseJson(path: string): Partial<Config> {
 }
 
 export function loadConfig(cwd: string): Config {
-	const global = tryParseJson(join(homedir(), ".omp", "agent", "claude-bridge.json"));
+	const global = tryParseJson(join(getAgentDir(), "claude-bridge.json"));
 	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
 	return {
 		askClaude: { ...global.askClaude, ...project.askClaude },
-		provider: { ...global.provider, ...project.provider },
+		provider: {
+			...global.provider,
+			...project.provider,
+			pathToClaudeCodeExecutable: global.provider?.pathToClaudeCodeExecutable,
+		},
 	};
 }

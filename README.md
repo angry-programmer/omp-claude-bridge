@@ -216,7 +216,7 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 ## Configuration reference
 
-Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project OMP config directory `.omp/claude-bridge.json` (project; merged over global). A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
+Config is read from OMP's agent directory (`~/.omp/agent/claude-bridge.json` by default) and `.omp/claude-bridge.json` in the project. Project settings override global settings **except** `pathToClaudeCodeExecutable`, which is trusted only from the global file. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
 ```json
 {
@@ -256,7 +256,7 @@ Config is read from `~/.omp/agent/claude-bridge.json` (global) and the project O
 | `appendSystemPrompt` | `true` | Append OMP's AGENTS.md and skills. |
 | `settingSources` | — | Claude Code filesystem settings to load; also used during SDK model discovery. |
 | `strictMcpConfig` | `true` | Block MCP servers from `~/.claude.json` / `.mcp.json`. Cloud MCP is always blocked. |
-| `pathToClaudeCodeExecutable` | — | Path to the `claude` binary, used for both discovery and requests. |
+| `pathToClaudeCodeExecutable` | — | Trusted global config only. Path to the `claude` binary for discovery and requests; project values are ignored. |
 
 ## How it works
 
