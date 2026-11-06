@@ -172,9 +172,10 @@ and uses the same retained metadata and context-window variants:
 }
 ```
 
-Discovery failures are surfaced to OMP so its last good dynamic catalog can be
-preserved. On a cold cache, fix the Claude Code executable/configuration or use
-an explicit static list; the bridge never invents a selectable runtime.
+Discovery failure (including timeout or an empty SDK result) logs one warning
+per attempt and returns the retained exact catalog with known metadata and
+window variants. The callback cannot inspect OMP's cache state, so the same safe
+fallback applies on warm and cold discovery failures; it never restores aliases.
 Bash commands issued by Claude Code get a 120-second default timeout (matching Claude Code's default), since OMP's bash has no timeout by default.
 
 ## AskClaude tool

@@ -10,16 +10,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Exact-only catalogs by default; `provider.includeAliases: true` opts into
   non-versioned SDK aliases, including aliases in explicit static lists.
 - Runtime model discovery through the official Claude Agent SDK
-  `supportedModels()` catalog. SDK family aliases route unchanged to Claude
-  Code's latest model, while retained versioned selectors such as
-  `claude-opus-4-8` remain independently selectable and route exactly.
+  `supportedModels()` catalog. Exact SDK selectors join retained current
+  versions; family aliases are available only with explicit opt-in.
 - `provider.models` as an explicit static override for installations that
   need the legacy context-window variants.
 
 ### Changed
 - Dynamic catalogs use OMP's `fetchDynamicModels` SQLite cache (24-hour TTL).
-  Discovery failures now throw so OMP can retain the last good catalog instead
-  of replacing it with an invented fallback.
+  Failed discovery now logs one warning per attempt and supplies retained exact
+  ids with known metadata, including when the cache is cold.
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.

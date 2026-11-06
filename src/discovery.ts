@@ -4,6 +4,7 @@ import {
 	type Query,
 	type SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
+import { projectSupportedModels, type ContextWindowMode } from "./models.js";
 
 /** OMP aborts runtime provider discovery at 15 seconds; finish first. */
 export const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -67,5 +68,19 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 		} catch {
 			// Preserve the discovery failure (if any); close is best effort.
 		}
+	}
+}
+
+/** Provider catalog boundary: discovery is optional; retained exact ids are not. */
+export async function discoverProviderModels(
+	piAiModels: Parameters<typeof projectSupportedModels>[1] = [],
+	options: ClaudeModelDiscoveryOptions & { includeAliases?: boolean; contextWindow?: ContextWindowMode } = {},
+) {
+	try {
+		return projectSupportedModels(await discoverClaudeModels(options), piAiModels, options);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`claude-bridge: model discovery failed; using retained exact catalog: ${message}`);
+		return projectSupportedModels([], piAiModels, { contextWindow: options.contextWindow });
 	}
 }

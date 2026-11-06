@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive } from "../src/models.ts";
-import { discoverClaudeModels } from "../src/discovery.ts";
+import { discoverClaudeModels, discoverProviderModels } from "../src/discovery.ts";
 
 const SETTINGS = { contextWindow: "auto" };
 const PI_MODELS = [{
@@ -135,3 +135,33 @@ test("dynamic retained releases offer context variants under each policy", () =>
 		assert.ok(models.some((model) => model.id === `claude-opus-5-5-${contextWindow === "200k" ? "1m" : "200k"}`));
 	}
 });
+
+for (const failure of ["throw", "empty", "timeout"]) {
+	test(`provider discovery ${failure}: returns retained exact metadata and one warning`, async () => {
+		const warnings = [];
+		const original = console.error;
+		console.error = (...args) => warnings.push(args.join(" "));
+		let models;
+		try {
+			models = await discoverProviderModels([], {
+				timeoutMs: 5,
+				includeAliases: true,
+				queryFn: () => ({
+					supportedModels: () => {
+						if (failure === "throw") throw new Error("SDK unavailable");
+						return failure === "empty" ? Promise.resolve([]) : new Promise(() => {});
+					},
+					close() {},
+				}),
+			});
+		} finally {
+			console.error = original;
+		}
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /retained exact catalog/);
+		assert.equal(models.find((m) => m.id === "claude-opus-5-5").contextWindow, 1_000_000);
+		assert.equal(models.find((m) => m.id === "claude-sonnet-5-5").maxTokens, 128_000);
+		assert.ok(models.every((m) => m.id.startsWith("claude-")));
+		assert.equal(models.some((m) => m.id === "claude-opus-5"), false);
+	});
+}

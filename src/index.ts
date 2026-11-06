@@ -11,8 +11,8 @@ import { appendFileSync, mkdirSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.js";
-import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
-import { discoverClaudeModels } from "./discovery.js";
+import { CLAUDE_EFFORT_LEVELS, buildConfiguredModels, buildVariantModels, claudeCodeModelId, routeClaudeEffort, setDynamicRuntimeCatalogActive, type ClaudeEffort, type ClaudeProviderModel, type ContextWindowMode, type ContextWindowSettings, resolveModel as _resolveModel } from "./models.js";
+import { discoverProviderModels } from "./discovery.js";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, extractSkillsBlock } from "./skills.js";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.js";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.js";
@@ -1774,12 +1774,11 @@ export default function (pi: ExtensionAPI) {
 	// --- Provider ---
 
 	const fetchDynamicModels = async (_apiKey: string | undefined) => {
-		const discovered = await discoverClaudeModels({
+		const projected = await discoverProviderModels(getModels("anthropic"), {
+			...providerSettings,
+			contextWindow: contextWindowSettings.contextWindow,
 			cwd: process.cwd(),
-			pathToClaudeCodeExecutable: providerSettings.pathToClaudeCodeExecutable,
-			settingSources: providerSettings.settingSources,
 		});
-		const projected = projectSupportedModels(discovered, getModels("anthropic"), providerSettings);
 		dynamicModels = projected.map((model) => ({ id: model.id }));
 		return projected;
 	};
