@@ -1,68 +1,78 @@
-Summary: Implemented the BRIDGE-1 exact-model catalog in version 0.8.2. Default discovery exposes current exact selectors, retains required legacy versions, supplies known static metadata, and falls back to retained exact entries on discovery failure. Full tests pass 33/33; typecheck passes; an isolated real-SDK provider probe passes.
+# BRIDGE-1 — review fixes
+
+All findings addressed: H 1/1, M 6/6, L 5/5. Version remains 0.8.2. Final implementation commit: `e0922c6`; this report is a subsequent documentation-only commit. Verification: **47/47 tests**, typecheck passes, actual provider probe passes, **12/12 real generations accepted**.
 
 ## Scope and commits
 
-Branch: `lane/bridge-1-model-catalog` in the assigned `bridge-1` worktree. Tested implementation commit: `b34332e`.
+Assigned worktree: `/home/archon/Workspace/omp-claude-bridge/.worktrees/bridge-1`; branch `lane/bridge-1-model-catalog`.
 
-1. `9949e84` — aliases hidden unless explicitly enabled.
-2. `36feff8` — current retained metadata, window variants, and routing.
-3. `25281b3` — safe discovery-failure fallback.
-4. `b34332e` — version 0.8.2 and release documentation.
+| Finding | Commit | Change and evidence |
+| --- | --- | --- |
+| H1 | `f2bd8c2` | Successful SDK catalogs are atomically saved in a bridge-owned last-good file. Failure reads it first, then retained metadata; explicit retained `[1m]` ids survive cold fallback. Regression covers a discovery-only future id and unchanged snapshot bytes. |
+| M1 | `18f7f13` | One process-local log per hidden alias, naming its exact SDK resolution or known family target. Repeated discovery does not repeat the hint. |
+| M2 | `11c2e44` | AskClaude defaults to exact `claude-opus-5-5`, including before discovery. |
+| M3 | `6348685` | Exact match precedes substring lookup. Regression selects `claude-sonnet-5` when `claude-sonnet-5-5` appears first. |
+| M4 | `bd6a53b` | Routing-only legacy window table for Opus 4.6/4.7/4.8, Sonnet 4.6, Fable 5; no default catalog restoration. CHANGELOG has a Removed entry. |
+| M5 | `44e6142` | Restored discovery isolation assertions: `strictMcpConfig: true`, empty `mcpServers`, `ENABLE_CLAUDEAI_MCP_SERVERS=0`. |
+| M6 | `a500c28` | Twelve actual one-word generations; documented native 1M serving despite bridge 200K selectors. |
+| L1 | `f4575b2` | Unsupported bridge `-200k`/`-1m` variants fail before Claude Code in static/dynamic mode and unresolved AskClaude requests. Known legacy routing policies remain supported. |
+| L2 | `48466fe` | `-latest` ids excluded even with alias opt-in; direct routing errors request an exact id. |
+| L3 | `6dbf5d3` | Explicit discovery option allowlist; arbitrary provider JSON cannot supply internal timeout/query function options. |
+| L4 | `d35ebee` | Executable path accepted only from trusted global config. Global config uses OMP's agent-directory resolver. Temporary config tests prove project paths cannot override or supply it. |
+| L5 | `e0922c6` | Actual registered callback forwards alias/window settings; test observes aliases and 200K/1M projected entries, plus default exact-only/auto behavior. |
 
-Each implementation commit uses a conventional message ending `Refs cursedrollgames/lab#163`, without attribution trailers. No sub-agents, push, merge, publish, live `omp models refresh`, main-checkout edits, or writes under the real `~/.omp` were performed. The existing untracked `node_modules` symlink was left untouched.
+Each commit ends `Refs cursedrollgames/lab#163`, with no attribution trailers. Earlier implementation commits remain on this branch (`9949e84`, `36feff8`, `25281b3`, `b34332e`, `b8d1274`). No subagents, push, merge, publish, live `omp models refresh`, main-checkout edits, or deliberate writes under the real `~/.omp` were performed. Execution redirected bridge configuration/cache to temporary directories. The untracked review file was not committed; existing symlinks were left intact. Throwaway probe scripts and their temporary directories were removed after verification.
 
-## Behavior
+## Discovery failure and OMP caching
 
-- `provider.includeAliases` defaults to false. SDK `value` and `resolvedModel` selectors are included only when versioned; aliases such as `opus`, `sonnet`, `haiku`, `default`, and `opus[1m]` require explicit opt-in. This filter also applies to `provider.models`.
-- Retained base ids are `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-1`, `claude-sonnet-5`, and `claude-haiku-4-5`. Obsolete retained Opus 4.x, Sonnet 4.6, and Fable 5 defaults were removed; Opus 5 was not added.
-- The four current releases default to 1M, with `-200k` alternatives. Under `contextWindow: "200k"`, base ids advertise 200K and `-1m` alternatives remain selectable. Explicit `[1m]` selectors stay exact and advertise 1M. Sonnet 5 retains both windows; Haiku 4.5 remains 200K only.
-- Dynamic retained entries use the same variant rules as static entries. Routing translates picker variants rather than sending `-200k` as part of a Claude model version. Haiku 4.5 remains routable under the 1M preference because its sole available window is 200K.
-- Discovery startup errors, empty results, and timeouts produce one warning per attempted discovery and return retained exact entries with metadata. OMP's callback exposes no cache-state argument, so this safe fallback also applies to attempted warm-cache refreshes; it does not restore stale aliases. A fresh OMP cache can bypass discovery until its 24-hour TTL expires.
-- README, example JSON, configuration types, and CHANGELOG document the opt-in and metadata/window behavior. `package.json` is 0.8.2.
+Default bridge snapshot: `<OMP agent dir>/claude-bridge-models.json`. It stores raw successful SDK model information, not a particular alias/window projection. A successful, nonempty discovery atomically writes it using a mode-0600 temporary file; a discovery failure never writes it. Current options are reapplied when loading last-good data. If no readable usable snapshot exists, retained exact metadata supplies the fallback, including `claude-fable-5-1[1m]` and the other retained 1M-capable explicit ids. A snapshot write failure is logged and does not discard the freshly discovered result.
 
-### Existing alias configurations
+**OMP does cache a fallback array.** Installed source evidence:
 
-An OMP role such as `claude-bridge/sonnet` cannot resolve a selector hidden from the registry. Migrate the role to `claude-bridge/claude-sonnet-5-5`, or explicitly enable `provider.includeAliases: true`; a deliberately static catalog must also include `sonnet` in `provider.models`. Opted-in aliases are passed unchanged to Claude Code. AskClaude still accepts direct aliases independently of catalog visibility.
+- `node_modules/@oh-my-pi/pi-coding-agent/src/config/model-registry.ts:3081–3123`: provider callback is wrapped by a manager with `staticModels: []`, a 24-hour TTL, and `dynamicModelsAuthoritative: true`; it receives only an API key, and returns ordinary model rows.
+- `node_modules/@oh-my-pi/pi-catalog/src/model-manager.ts:299–372`: any non-null fetched result counts as a successful dynamic fetch; authoritative discovery replaces cached contributions and calls `writeModelCache` with the new timestamp.
 
-This chooses the brief's permitted documented migration behavior rather than the recommended transparent alias-to-exact routing warning. No exact resolved-id warning is emitted for alias use. An installation with an old warm OMP catalog may retain old cached entries until cache expiry or an operator-authorized refresh; no live refresh was attempted here.
+There is no bridge-facing “fallback, do not cache” return shape. Last-good data prevents a temporary SDK failure from shrinking a previously saved bridge catalog, but **OMP still renews its TTL when it caches that fallback**. Before the first successful bridge snapshot, only the retained table is available; OMP's separately stored preexisting discovery-only ids cannot be recovered through this callback. No installed OMP files or live registry/cache were modified or refreshed.
 
-## Metadata evidence
+## Migration and trust boundaries
 
-Real executable: `/home/archon/.local/bin/claude`; observed version: `2.1.317 (Claude Code)`.
+Hidden aliases log their exact migration target, for example:
 
-Its real SDK `supportedModels()` resolved aliases to Opus/Sonnet/Haiku 5.5 and Fable 5.1. All four reported adaptive thinking and effort names `low`, `medium`, `high`, `xhigh`, `max`. The picker projects only OMP-native `low` through `xhigh` without effort remapping; AskClaude continues to support separate `max`.
+```text
+claude-bridge: hidden alias "sonnet" (resolves to claude-sonnet-5-5; use claude-bridge/claude-sonnet-5-5); or set provider.includeAliases: true
+```
 
-Max-output metadata comes from installed pi-ai for Opus 5.5, Fable 5.1, Sonnet 5, and Haiku 4.5. Installed pi-ai has no Sonnet/Haiku 5.5 entries, and SDK `ModelInfo` does not expose output limits. For those two releases, the supplementary primary source was the installed Claude Code 2.1.317 binary's bundled model catalog: both entries specify `max_output_tokens: { default: 128000, upper: 128000 }` and native 1M context. Fable's pi-ai upper limit is 128,000 although Claude Code's baked default is 64,000; the bridge advertises maximum output, not the CLI default.
+Migrate roles such as `claude-bridge/sonnet` to the exact id, or explicitly opt into aliases and include them in a static list if applicable. Unknown SDK aliases without resolution cannot truthfully name an exact target; their hint says “exact resolution unavailable.” Opted-in aliases remain moving selectors. `-latest` is rejected independently of alias opt-in. AskClaude accepts explicitly requested family aliases, but never uses bare `opus` as its default.
 
-Retained fallback metadata keeps these limits and thinking capabilities available without a current pi-ai entry. Pi-ai cost metadata is used when present; absent cost metadata remains the bridge's existing zero-cost fallback.
+Removed legacy ids remain available only when explicitly configured or rediscovered, with their historical runtime/window policy. Opus 4.7 remains native-1M-only; Haiku 4.5 remains 200K-only. No obsolete retained defaults or compatibility exports were reintroduced.
+
+Discovery receives only `pathToClaudeCodeExecutable`, `settingSources`, `includeAliases`, normalized `contextWindow`, and current `cwd`. The executable comes exclusively from global config; project values are ignored for discovery and generation alike. MCP isolation is enforced during discovery regardless of provider settings. This does not claim that all filesystem Claude settings/hooks are sandboxed: configured `settingSources` remain a separate trust surface.
 
 ## Verification
 
-Executed after implementation and release changes:
+Executed after all implementation changes:
 
 ```text
 bun test
-33 pass
+47 pass
 0 fail
-Ran 33 tests across 4 files.
+Ran 47 tests across 7 files.
 
 bun run typecheck
 $ tsc --noEmit
 (exit 0)
-
-release version: 0.8.2
 ```
 
-New regression coverage exercises default/opted-in aliases, all current release windows under auto/1m/200k, static retained ids without warnings, explicit Fable 5.1[1m], dynamic variant routing, and discovery exception/empty/timeout fallback with exactly one warning. The window tests failed against the old implementation; fallback tests failed before recovery was implemented.
+Regressions were observed failing before fixes for unsupported variants, `-latest`, arbitrary discovery option injection, and project executable override. Earlier focused checks cover last-good retention, exact-first resolution, alias migration hints, legacy policies, and MCP isolation. New tests use isolated temporary directories or separate Bun processes for module mocks; no test writes the default bridge snapshot under the actual agent directory.
 
 ### Real provider probe
 
-Executed `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-1-probe.mts`. The throwaway script imported the worktree's actual `src/index.ts`, captured its `registerProvider` configuration, and invoked the registered `fetchDynamicModels` callback against the real SDK/executable. It used a temporary project `.omp/claude-bridge.json` outside the live checkout, disabled AskClaude and filesystem setting sources, and removed its temporary directory in `finally`. No OMP registry/cache was instantiated. The script was removed after the smoke run.
+Executed `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-review-provider.mts` against the worktree's actual extension registration and the real SDK/Claude executable. A temporary global agent config supplied the trusted executable and `settingSources: []`; a deliberately invalid project executable was ignored. No OMP model manager was instantiated.
 
-The same script asserted metadata/routing for the current releases in four modes: real dynamic discovery, alias opt-in, an explicit static list, and an invalid executable path with no cache. Observed output:
+Observed output:
 
 ```text
-MODE dynamic: 12 models; warnings=0
+MODE dynamic: 16 models
 claude-opus-5-5 | 1000000 | 128000 | low,medium,high,xhigh
 claude-opus-5-5-200k | 200000 | 128000 | low,medium,high,xhigh
 claude-sonnet-5-5 | 1000000 | 128000 | low,medium,high,xhigh
@@ -74,19 +84,47 @@ claude-fable-5-1-200k | 200000 | 128000 | low,medium,high,xhigh
 claude-sonnet-5 | 1000000 | 128000 | low,medium,high,xhigh
 claude-sonnet-5-200k | 200000 | 128000 | low,medium,high,xhigh
 claude-haiku-4-5 | 200000 | 64000 | low,medium,high,xhigh
+claude-opus-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-sonnet-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+claude-haiku-5-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
 claude-fable-5-1[1m] | 1000000 | 128000 | low,medium,high,xhigh
-MODE aliases: 16 models; warnings=0
-MODE static: 12 models; warnings=0
-MODE failure: 11 models; warnings=1
-claude-bridge: model discovery failed; using retained exact catalog: Claude Code native binary not found at /tmp/bridge-1-probe-k1Ocq3/missing-claude. Please ensure Claude Code is installed via native installer or specify a valid path with options.pathToClaudeCodeExecutable.
+claude-sonnet-5[1m] | 1000000 | 128000 | low,medium,high,xhigh
+MODE aliases-200k: 20 models
+MODE warm-failure: 16 models; last-good bytes unchanged
+MODE cold-failure: 16 models; explicit retained 1M resolvable
+MODE static: 8 models; warnings=0
+PROVIDER PROBE PASS
 ```
 
-The initialization-only probe verifies advertised provider metadata and outgoing selector translation, not generation-time served context. The requested 200K variants preserve the existing bare-id convention, while 1M requests use `[1m]`. Claude Code's native-1M catalog metadata is not proof that a bare selector enforces a 200K server cap; that enforcement was not measured. No paid generation or entitlement probe was performed.
+Hidden aliases `default`, `opus`, `sonnet`, `haiku` each logged one exact migration hint. Invalid trusted executable produced one failure warning per attempt, first naming last-good, then retained fallback after removal of the temporary snapshot. The warm-failure probe asserted full catalog equality and byte-for-byte snapshot preservation. Static mode did not run discovery.
+
+### Real generations — Claude Code 2.1.317
+
+Executed `CLAUDE_BRIDGE_DEBUG=0 bun tests/.bridge-review-generations.mts`. Executable: `/home/archon/.local/bin/claude`. Each query requested exactly `OK`, one turn, low effort, no tools, no filesystem setting sources, no session persistence, strict empty MCP, cloud MCP disabled, and a temporary working directory. The base-form probe sent the literal bare selector; bridge `-200k` forms were translated through production routing, and explicit `[1m]` was passed unchanged.
+
+| Requested form | Claude Code selector | Reply | Reported context | Runtime max output |
+| --- | --- | --- | ---: | ---: |
+| `claude-opus-5-5` | `claude-opus-5-5` | OK | 1000000 | 128000 |
+| `claude-opus-5-5-200k` | `claude-opus-5-5` | OK | 1000000 | 128000 |
+| `claude-opus-5-5[1m]` | `claude-opus-5-5[1m]` | OK | 1000000 | 128000 |
+| `claude-sonnet-5-5` | `claude-sonnet-5-5` | OK | 1000000 | 128000 |
+| `claude-sonnet-5-5-200k` | `claude-sonnet-5-5` | OK | 1000000 | 128000 |
+| `claude-sonnet-5-5[1m]` | `claude-sonnet-5-5[1m]` | OK | 1000000 | 128000 |
+| `claude-haiku-5-5` | `claude-haiku-5-5` | OK | 1000000 | 128000 |
+| `claude-haiku-5-5-200k` | `claude-haiku-5-5` | OK | 1000000 | 128000 |
+| `claude-haiku-5-5[1m]` | `claude-haiku-5-5[1m]` | OK | 1000000 | 128000 |
+| `claude-fable-5-1` | `claude-fable-5-1` | OK | 1000000 | 64000 |
+| `claude-fable-5-1-200k` | `claude-fable-5-1` | OK | 1000000 | 64000 |
+| `claude-fable-5-1[1m]` | `claude-fable-5-1[1m]` | OK | 1000000 | 64000 |
+
+All returned success and canonical served models matching the requested release. Claude Code did **not** receive literal `-200k` selectors; these are OMP-facing bridge variants. All twelve reported 1M in `result.modelUsage.contextWindow`, so `-200k` changes OMP's context/compaction threshold, **not** a Claude Code server cap. This is runtime metadata from minimal real requests, not a million-token capacity stress test.
+
+The picker advertises maximum output, not necessarily Claude Code's runtime default. Installed pi-ai supplies Opus/Fable/Sonnet 5/Haiku 4.5 metadata; installed Claude Code's bundled catalog supplements missing Sonnet/Haiku 5.5 entries. Fable's catalog upper limit is 128K while the observed runtime default is 64K. SDK discovery reported adaptive thinking with `low`, `medium`, `high`, `xhigh`, `max`; the picker exposes OMP-native low through xhigh without remapping, while AskClaude preserves separate max.
 
 ## Evaluation and handoff
 
-Accuracy 4/5: tests and real SDK output ground the catalog claims; served-window enforcement is explicitly unmeasured. Completeness 5/5: all named changes and verification scenarios are covered, with the optional alias recommendation's alternative documented. Clarity 4/5: separate SDK capability evidence from pi-ai and bundled output-limit evidence. Actionability 4/5: commits and exact role migration are provided; deployment/cache refresh remains the owner's action. Conciseness 4/5: full probe output is retained as required. Overall 4.2/5. Highest-impact handoff cautions: migrate hidden alias roles and account for existing warm caches before evaluating a rollout. Independent review was not dispatched because this lane forbids sub-agents.
+Accuracy 5/5: full tests, actual callback probe, installed OMP cache source, and generation results ground the claims; metadata-versus-capacity limits are explicit. Completeness 5/5: every named finding has a commit and evidence. Clarity 4/5: served context and OMP compaction policy are distinct. Actionability 5/5: exact alias targets, global-only executable policy, and remaining cache TTL behavior are documented. Conciseness 4/5: full catalog and generation evidence retained for review. No independent agent review was dispatched because this worker forbids subagents.
 
-The boundary below identifies the tested implementation commit; the report itself is a later documentation-only commit. A root working copy is supplied, with the committed report under `documentation/REPORT-BRIDGE-1.md` to match the repository's documentation location.
+The root `REPORT-BRIDGE-1.md` symlink exposes this committed report. The boundary uses the tested implementation sha; final chat identifies the later report commit.
 
-SLICE-BOUNDARY: BRIDGE-1 omp-claude-bridge lane/bridge-1-model-catalog@b34332e — aliases hidden by default yes, 5.5 ids 1M yes, static-mode warnings 0 yes, discovery fallback yes, tests 33/33, typecheck pass yes
+SLICE-BOUNDARY: BRIDGE-1 omp-claude-bridge lane/bridge-1-model-catalog@e0922c6 — review fixes H 1/1 M 6/6 L 5/5, tests 47/47, typecheck pass yes, real generations 12/12 accepted
