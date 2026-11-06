@@ -85,26 +85,19 @@ To delegate from another provider instead, just ask: *"Ask Claude to review this
 
 ## Context window controls
 
-When `provider.models` is a non-empty explicit list, the bridge's static model
-table serves different context windows through exact model selectors (for
-example, `claude-opus-4-8` serves 1M while the `claude-opus-4-8-200k` picker
-entry serves 200K). That static fallback exposes supported windows as separate
-`/model` entries:
+The retained catalog exposes supported context windows as separate `/model`
+entries in dynamic, static, and offline-fallback modes:
 
-- `claude-bridge/claude-opus-4-8` → **Opus 4.8 (1M)**
-- `claude-bridge/claude-opus-4-8-200k` → **Opus 4.8 (200K)**
+- `claude-bridge/claude-opus-5-5` → **Opus 5.5 (1M)**
+- `claude-bridge/claude-opus-5-5-200k` → **Opus 5.5 (200K)**
 
-Switching window is just picking the other entry — no config edit, no reload.
-Every model appears once per window it supports, the `(1M)` / `(200K)` label is
-always shown, and each entry reports its true window so OMP's status bar and
-auto-compaction threshold stay accurate. With runtime SDK discovery, entries
-remain exact SDK `value` selectors: known values inherit the best matched OMP
-metadata, while unknown values use conservative 128K metadata and explicit
-`[1m]` values remain 1M.
+Switching window is a picker selection. Retained ids use the window policy
+below; newly discovered exact ids inherit OMP metadata or conservative 128K /
+16,384-output-token metadata when unknown. Explicit `[1m]` selectors stay 1M.
 
 ### Default window
 
-The **unsuffixed** id (e.g. `claude-opus-4-8`) maps to a default window; the other window gets a `-1m` / `-200k` suffixed id. `provider.contextWindow` in `~/.omp/agent/claude-bridge.json` picks that default — it no longer hides models, it only decides which window is unsuffixed:
+The **unsuffixed** id (e.g. `claude-opus-5-5`) maps to a default window; the other window gets a `-1m` / `-200k` suffixed id. `provider.contextWindow` in `~/.omp/agent/claude-bridge.json` picks that default — it only decides which window is unsuffixed:
 
 ```json
 {
@@ -116,25 +109,24 @@ The **unsuffixed** id (e.g. `claude-opus-4-8`) maps to a default window; the oth
 
 | Mode | Default (unsuffixed) window |
 | ---- | -------- |
-| `"auto"` *(default)* | Canonical static policy: current Fable, Opus, and Sonnet entries default to 1M; Haiku 4.5 defaults to 200K. |
+| `"auto"` *(default)* | Opus/Sonnet/Haiku 5.5, Fable 5.1, and Sonnet 5 default to 1M; Haiku 4.5 defaults to 200K. |
 | `"1m"` | 1M where the model has a 1M runtime, else its only window. |
 | `"200k"` | 200K where the model has a 200K runtime, else its only window. |
 
-Both windows stay in the picker regardless of this setting (wherever a runtime exists); it only changes which one is the plain, unsuffixed id. So `modelRoles` / `enabledModels` that reference `claude-bridge/claude-opus-4-8` keep working and follow the default.
+Both windows stay in the picker regardless of this setting wherever supported. Exact `modelRoles` / `enabledModels` references such as `claude-bridge/claude-opus-5-5` follow the configured default.
 
 ### Windows offered per model
 
 | Model | 200K entry | 1M entry | `auto` default |
 | ----- | :--------: | :------: | :------------: |
-| `claude-opus-4-8` | ✓ | ✓ | 1M |
-| `claude-opus-4-7` | — | ✓ | 1M |
-| `claude-opus-4-6` | ✓ | ✓ | 1M |
-| `claude-fable-5` | ✓ | ✓ | 1M |
+| `claude-opus-5-5` | ✓ | ✓ | 1M |
+| `claude-sonnet-5-5` | ✓ | ✓ | 1M |
+| `claude-haiku-5-5` | ✓ | ✓ | 1M |
+| `claude-fable-5-1` | ✓ | ✓ | 1M |
 | `claude-sonnet-5` | ✓ | ✓ | 1M |
-| `claude-sonnet-4-6` | ✓ | ✓ | 1M |
 | `claude-haiku-4-5` | ✓ | — | 200K |
 
-The suffixed alternate exists only for the window that isn't the default — e.g. under `auto` you get `claude-opus-4-8` (1M) + `claude-opus-4-8-200k`, and under `"200k"` you get `claude-opus-4-8` (200K) + `claude-opus-4-8-1m`.
+The suffixed alternate exists only for the window that isn't the default — under `auto` you get `claude-opus-5-5` (1M) + `claude-opus-5-5-200k`, and under `"200k"` you get `claude-opus-5-5` (200K) + `claude-opus-5-5-1m`. The bridge requests `[1m]` for 1M and the bare selector for 200K, following Claude Code's selector convention.
 
 > Forcing 1M is a *request*: some models may still be **served** 200K by your subscription entitlement. Set `CLAUDE_BRIDGE_DEBUG=1` to log the served window as an entitlement diagnostic (see [Debugging](#debugging)).
 
@@ -144,9 +136,9 @@ The suffixed alternate exists only for the window that isn't the default — e.g
 
 The `/model` picker combines two sources:
 
-- Retained versioned selectors such as `claude-opus-4-8`,
-  `claude-sonnet-4-6`, and `claude-fable-5`. These route to that exact model
-  version.
+- Current exact selectors: Opus/Sonnet/Haiku 5.5 and Fable 5.1. Sonnet 5 and
+  Haiku 4.5 remain for configured legacy roles; obsolete retained 4.x Opus,
+  Sonnet 4.6, and Fable 5 entries are no longer advertised by default.
 - Claude Code's official Agent SDK `supportedModels()` catalog. Exact `value`
   and `resolvedModel` selectors appear automatically as new releases arrive.
   Non-versioned aliases (`opus`, `sonnet`, `haiku`, `fable`, `default`, and
@@ -162,18 +154,20 @@ SDK display names are preserved. The model picker exposes only SDK effort names
 that OMP represents natively (`low` through `xhigh`) and never translates them;
 `max` remains separately available through AskClaude because OMP currently
 treats its own `max` CLI spelling as an alias for `xhigh`. Cost, input, context,
-and output metadata are enriched from the best matching OMP catalog entry.
+and output metadata are enriched from OMP, with retained release metadata when
+OMP has no entry. The four current releases have 128,000 max-output tokens and
+adaptive thinking (`low`, `medium`, `high`, `xhigh` in the picker).
 Duplicate aliases and resolved selectors are ignored, and explicit `[1m]` IDs
 retain 1M context metadata.
 
 If you need a deliberately static catalog, set `provider.models` to a
 non-empty list of exact Claude Code ids. That explicit list bypasses discovery
-and retains the legacy context-window variant behavior:
+and uses the same retained metadata and context-window variants:
 
 ```json
 {
   "provider": {
-    "models": ["claude-opus-4-8", "claude-sonnet-5"]
+    "models": ["claude-opus-5-5", "claude-sonnet-5-5"]
   }
 }
 ```

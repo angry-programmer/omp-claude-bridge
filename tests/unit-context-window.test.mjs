@@ -1,122 +1,70 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { buildModels, buildConfiguredModels, buildVariantModels, claudeCodeModelId, parseVariantId, setDynamicRuntimeCatalogActive } from "../src/models.ts";
 
-import { buildVariantModels, claudeCodeModelId, parseVariantId } from "../src/models.ts";
+const CURRENT = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];
 
-// Minimal stand-ins for pi-ai model entries (buildVariantModels reads id, name,
-// contextWindow and spreads the rest through to each variant).
-const MODELS = [
-	{ id: "claude-fable-5", name: "Fable 5", contextWindow: 1_000_000 },
-	{ id: "claude-opus-4-8", name: "Opus 4.8", contextWindow: 200_000 },
-	{ id: "claude-opus-4-7", name: "Opus 4.7", contextWindow: 1_000_000 },
-	{ id: "claude-opus-4-6", name: "Opus 4.6", contextWindow: 200_000 },
-	{ id: "claude-sonnet-5", name: "Sonnet 5", contextWindow: 200_000 },
-	{ id: "claude-sonnet-4-6", name: "Sonnet 4.6", contextWindow: 200_000 },
-	{ id: "claude-haiku-4-5", name: "Haiku 4.5", contextWindow: 200_000 },
-];
+for (const mode of ["auto", "1m", "200k"]) {
+	test(`${mode}: current releases expose both windows and route each variant`, () => {
+		const settings = { contextWindow: mode };
+		const models = buildVariantModels(buildConfiguredModels(CURRENT, []), settings);
+		for (const id of CURRENT) {
+			const base = models.find((m) => m.id === id);
+			assert.equal(base.contextWindow, mode === "200k" ? 200_000 : 1_000_000);
+			const alternate = models.find((m) => m.id === `${id}-${mode === "200k" ? "1m" : "200k"}`);
+			assert.equal(alternate.contextWindow, mode === "200k" ? 1_000_000 : 200_000);
+			for (const model of [base, alternate]) {
+				assert.equal(model.maxTokens, 128_000);
+				assert.equal(model.reasoning, true);
+				assert.deepEqual(model.input, ["text", "image"]);
+				assert.deepEqual(model.thinking.efforts, ["low", "medium", "high", "xhigh"]);
+				assert.equal(claudeCodeModelId(model, settings), model.contextWindow === 1_000_000 ? `${id}[1m]` : id);
+			}
+		}
+	});
+}
 
-const settings = (contextWindow) => ({ contextWindow });
-const variants = (contextWindow) => buildVariantModels(MODELS, settings(contextWindow));
-const byId = (contextWindow) => Object.fromEntries(variants(contextWindow).map((m) => [m.id, m]));
-
-test("auto: each model expands to its available windows with correct ids, windows, and labels", () => {
-	const m = byId("auto");
-	// Opus 4.8: default 1M unsuffixed + 200K alternate.
-	assert.equal(m["claude-opus-4-8"].contextWindow, 1_000_000);
-	assert.equal(m["claude-opus-4-8"].name, "Opus 4.8 (1M)");
-	assert.equal(m["claude-opus-4-8-200k"].contextWindow, 200_000);
-	assert.equal(m["claude-opus-4-8-200k"].name, "Opus 4.8 (200K)");
-	// Opus 4.7: 1M only, no 200K variant.
-	assert.equal(m["claude-opus-4-7"].contextWindow, 1_000_000);
-	assert.ok(!m["claude-opus-4-7-200k"], "opus-4-7 has no 200K runtime");
-	// Opus 4.6: default 1M unsuffixed + 200K alternate.
-	assert.equal(m["claude-opus-4-6"].contextWindow, 1_000_000);
-	assert.equal(m["claude-opus-4-6-200k"].contextWindow, 200_000);
-	// Fable 5: default 1M + 200K alternate.
-	assert.equal(m["claude-fable-5"].contextWindow, 1_000_000);
-	assert.equal(m["claude-fable-5-200k"].contextWindow, 200_000);
-	// Sonnet 5: default 1M + 200K alternate.
-	assert.equal(m["claude-sonnet-5"].contextWindow, 1_000_000);
-	assert.equal(m["claude-sonnet-5-200k"].contextWindow, 200_000);
-	// Sonnet 4.6: default 1M unsuffixed + 200K alternate.
-	assert.equal(m["claude-sonnet-4-6"].contextWindow, 1_000_000);
-	assert.equal(m["claude-sonnet-4-6-200k"].contextWindow, 200_000);
-	// Haiku 4.5: 200K only, no 1M variant.
-	assert.equal(m["claude-haiku-4-5"].contextWindow, 200_000);
-	assert.ok(!m["claude-haiku-4-5-1m"], "haiku has no 1M runtime");
+test("static retained ids and explicit 1M selectors need no unknown-context warnings", () => {
+	const warnings = [];
+	const original = console.error;
+	console.error = (...args) => warnings.push(args.join(" "));
+	try {
+		for (const contextWindow of ["auto", "1m", "200k"]) {
+			const settings = { contextWindow };
+			const models = buildVariantModels(buildConfiguredModels([...CURRENT, "claude-sonnet-5", "claude-haiku-4-5", "claude-fable-5-1[1m]"], []), settings);
+			for (const model of models) claudeCodeModelId(model, settings);
+			assert.equal(models.find((m) => m.id === "claude-fable-5-1[1m]").contextWindow, 1_000_000);
+		}
+	} finally {
+		console.error = original;
+	}
+	assert.deepEqual(warnings, []);
 });
 
-test("auto: 12 entries, and no base model emits two entries for the same window", () => {
-	const list = variants("auto");
-	assert.equal(list.length, 12);
-	for (const base of MODELS.map((mm) => mm.id)) {
-		const windows = list.filter((v) => v.id === base || v.id.startsWith(`${base}-`)).map((v) => v.contextWindow);
-		assert.equal(new Set(windows).size, windows.length, `${base} has duplicate windows`);
+test("default catalog retains only current releases and configured legacy versions", () => {
+	assert.deepEqual(buildModels([]).map((m) => m.id), [...CURRENT, "claude-sonnet-5", "claude-haiku-4-5"]);
+	const models = buildVariantModels(buildModels([]), { contextWindow: "auto" });
+	assert.equal(models.find((m) => m.id === "claude-sonnet-5").contextWindow, 1_000_000);
+	assert.equal(models.find((m) => m.id === "claude-haiku-4-5").contextWindow, 200_000);
+	assert.equal(models.find((m) => m.id === "claude-haiku-4-5").maxTokens, 64_000);
+	assert.equal(models.some((m) => m.id === "claude-haiku-4-5-1m"), false);
+});
+
+test("dynamic catalog variants are translated rather than sent as model versions", () => {
+	setDynamicRuntimeCatalogActive(true);
+	try {
+		assert.equal(claudeCodeModelId({ id: "claude-opus-5-5-200k" }, { contextWindow: "auto" }), "claude-opus-5-5");
+		assert.equal(claudeCodeModelId({ id: "claude-sonnet-5-5-1m" }, { contextWindow: "200k" }), "claude-sonnet-5-5[1m]");
+		assert.equal(claudeCodeModelId({ id: "claude-future-6" }, { contextWindow: "auto" }), "claude-future-6");
+	} finally {
+		setDynamicRuntimeCatalogActive(false);
 	}
 });
 
-test("the default variant is listed before its suffixed alternate", () => {
-	const ids = variants("auto").map((m) => m.id);
-	assert.ok(ids.indexOf("claude-opus-4-8") < ids.indexOf("claude-opus-4-8-200k"));
-	assert.ok(ids.indexOf("claude-sonnet-5") < ids.indexOf("claude-sonnet-5-200k"));
-	assert.ok(ids.indexOf("claude-fable-5") < ids.indexOf("claude-fable-5-200k"));
-});
-
-test("auto: current Fable, Opus, and Sonnet defaults are 1M; Haiku stays 200K", () => {
-	const m = byId("auto");
-	for (const id of ["claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-sonnet-4-6"]) {
-		assert.equal(m[id].contextWindow, 1_000_000, `${id} should default to 1M`);
-	}
-	assert.equal(m["claude-haiku-4-5"].contextWindow, 200_000);
-});
-
-test("200k config: unsuffixed prefers 200K, 1M stays available as -1m, Opus 4.7 falls back to 1M", () => {
-	const m = byId("200k");
-	assert.equal(m["claude-opus-4-8"].contextWindow, 200_000);
-	assert.equal(m["claude-opus-4-8-1m"].contextWindow, 1_000_000);
-	assert.ok(!m["claude-opus-4-8-200k"], "200K is the default here, so no suffixed duplicate");
-	// Opus 4.7 has no 200K runtime, so its only window (1M) becomes the unsuffixed default.
-	assert.equal(m["claude-opus-4-7"].contextWindow, 1_000_000);
-	assert.ok(!m["claude-opus-4-7-1m"]);
-	assert.equal(m["claude-fable-5"].contextWindow, 200_000);
-	assert.equal(m["claude-fable-5-1m"].contextWindow, 1_000_000);
-	assert.equal(m["claude-haiku-4-5"].contextWindow, 200_000);
-});
-
-test("1m config: unsuffixed prefers 1M, 200K stays available as -200k, Haiku falls back to 200K", () => {
-	const m = byId("1m");
-	assert.equal(m["claude-opus-4-8"].contextWindow, 1_000_000);
-	assert.equal(m["claude-opus-4-8-200k"].contextWindow, 200_000);
-	assert.ok(!m["claude-opus-4-8-1m"], "1M is the default here, so no suffixed duplicate");
-	// Haiku has no 1M runtime, so 200K stays the unsuffixed default.
-	assert.equal(m["claude-haiku-4-5"].contextWindow, 200_000);
-	assert.ok(!m["claude-haiku-4-5-200k"]);
-	assert.equal(m["claude-opus-4-7"].contextWindow, 1_000_000);
-});
-
-test("parseVariantId splits window suffixes and leaves base ids intact", () => {
-	assert.deepEqual(parseVariantId("claude-opus-4-8"), { baseId: "claude-opus-4-8" });
-	assert.deepEqual(parseVariantId("claude-opus-4-8-200k"), { baseId: "claude-opus-4-8", forced: "200k" });
-	assert.deepEqual(parseVariantId("claude-fable-5-1m"), { baseId: "claude-fable-5", forced: "1m" });
-});
-
-test("claudeCodeModelId: unsuffixed id follows the config default", () => {
-	assert.equal(claudeCodeModelId({ id: "claude-fable-5" }, settings("auto")), "claude-fable-5[1m]");
-	assert.equal(claudeCodeModelId({ id: "claude-fable-5" }, settings("1m")), "claude-fable-5[1m]");
-	assert.equal(claudeCodeModelId({ id: "claude-opus-4-8" }, settings("auto")), "claude-opus-4-8[1m]");
-	assert.equal(claudeCodeModelId({ id: "claude-opus-4-8" }, settings("200k")), "claude-opus-4-8");
-});
-
-test("claudeCodeModelId: a suffixed id forces its window regardless of config", () => {
-	assert.equal(claudeCodeModelId({ id: "claude-opus-4-8-200k" }, settings("auto")), "claude-opus-4-8");
-	assert.equal(claudeCodeModelId({ id: "claude-opus-4-8-200k" }, settings("1m")), "claude-opus-4-8");
-	assert.equal(claudeCodeModelId({ id: "claude-fable-5-1m" }, settings("200k")), "claude-fable-5[1m]");
-	assert.equal(claudeCodeModelId({ id: "claude-opus-4-6-1m" }, settings("auto")), "claude-opus-4-6[1m]");
-});
-
-test("claudeCodeModelId throws when a model has no runtime for the requested window", () => {
-	assert.throws(() => claudeCodeModelId({ id: "claude-haiku-4-5-1m" }, settings("auto")));
-	assert.throws(() => claudeCodeModelId({ id: "claude-opus-4-7-200k" }, settings("auto")));
-	assert.throws(() => claudeCodeModelId({ id: "claude-haiku-4-5" }, settings("1m")));
-	assert.throws(() => claudeCodeModelId({ id: "claude-opus-4-7" }, settings("200k")));
+test("variant suffixes override the configured default", () => {
+	assert.deepEqual(parseVariantId("claude-fable-5-1"), { baseId: "claude-fable-5-1" });
+	assert.deepEqual(parseVariantId("claude-fable-5-1-1m"), { baseId: "claude-fable-5-1", forced: "1m" });
+	assert.deepEqual(parseVariantId("claude-opus-5-5-200k"), { baseId: "claude-opus-5-5", forced: "200k" });
+	assert.equal(claudeCodeModelId({ id: "claude-opus-5-5-200k" }, { contextWindow: "1m" }), "claude-opus-5-5");
+	assert.throws(() => claudeCodeModelId({ id: "claude-haiku-4-5-1m" }, { contextWindow: "auto" }), /no Claude Code runtime/);
 });

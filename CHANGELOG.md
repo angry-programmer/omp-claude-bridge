@@ -25,6 +25,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   separate, while the OMP model picker exposes only OMP-native exact names.
 
 ### Fixed
+- Retained Opus/Sonnet/Haiku 5.5 and Fable 5.1 metadata: 1M defaults,
+  200K variants, 128,000 output tokens, and native adaptive-thinking efforts.
+  Static mode recognizes these ids without unknown-context warnings.
+- Removed obsolete default retained ids; Sonnet 5 and Haiku 4.5 remain for
+  configured legacy roles. Dynamic retained entries now share window variants.
 - Dynamic SDK selectors now inherit matched OMP context metadata, including
   canonical 1M values, without an unconditional 200K cap. Unknown selectors
   remain conservative 128K, while explicit `[1m]` selectors stay at 1M.
