@@ -267,7 +267,7 @@ Trusted config is read from the account's passwd home at `.omp/agent/claude-brid
 | `settingSources` | `[]` | Global generation trust ceiling for Claude Code filesystem settings/hooks; projects may only remove sources. Discovery always uses `[]`. |
 | `strictMcpConfig` | `true` | Block filesystem MCP. Only global config can disable it; projects may enable it. Discovery and AskClaude always stay strict. Cloud MCP is always blocked. |
 | `pathToClaudeCodeExecutable` | — | Trusted global config only. Path to the `claude` binary for discovery and requests; project values are ignored. |
-| `trustedEnv` | `[]` | Global-only exact names to re-allow in child environments, including discovery. Explicitly trusts current values, even project dotenv; never list untrusted endpoint/auth/loader values. |
+| `trustedEnv` | `[]` | Global-only exact names allowed from OMP's provenance-filtered child environment, including discovery. Never permits cwd dotenv values; a safe launcher value restored by OMP may survive instead. |
 
 ## How it works
 

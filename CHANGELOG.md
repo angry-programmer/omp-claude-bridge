@@ -47,9 +47,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - AskClaude enabled/full-mode ceilings and tool identity cannot be loosened by
   project config. Unauthorized or malformed defaults become read mode; explicit
   unauthorized full-mode execution is rejected.
-- All Claude subprocess environments use one helper: minimal discovery allowlist,
-  generation endpoint/auth/proxy/loader denylist, authoritative launcher values
-  retained, global-only `provider.trustedEnv` escape hatch, names-only logging.
+- Every Claude subprocess starts from OMP's provenance-filtered child environment,
+  removing project dotenv additions regardless of name. A second denylist covers
+  endpoint/auth/proxy, native and JS loaders, shell startup, Git, telemetry and
+  TLS overrides. Launcher and global trustedEnv exceptions use only filtered
+  values; neither can restore cwd dotenv values or bless a parent-preloaded
+  denied name without safe explicit global trust. Logging contains names only.
 - Executable paths are honored only from global bridge config. Trusted global
   config and snapshot use the passwd home, independent of inherited/cwd HOME
   and OMP agent/config/profile overrides; native-home mismatches warn.

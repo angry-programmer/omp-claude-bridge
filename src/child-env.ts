@@ -1,11 +1,11 @@
-import { filterChildShellEnv } from "@oh-my-pi/pi-utils";
+import { filterChildShellEnv, getDotenvEnvValues, parseEnvFile } from "@oh-my-pi/pi-utils";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { TRUSTED_HOME } from "./trusted-paths.js";
 
-// OMP's public shell filter restores launcher values overwritten by dotenv, but
-// its authoritative launch map is private. Use the same Linux exec boundary to
-// distinguish launcher credentials from runtime/project additions. Elsewhere,
-// no provenance means deny by default; trustedEnv is the explicit escape hatch.
+// OMP restores launcher values while filtering dotenv. Its launch map is
+// private, so use the same Linux exec boundary only to check provenance of a
+// value already present in that filtered base, never to reinsert raw values.
 function launchEnvironment(): Map<string, string> {
 	if (process.platform === "linux") {
 		try {
@@ -19,35 +19,55 @@ function launchEnvironment(): Map<string, string> {
 }
 const launcher = launchEnvironment();
 const authNames = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
-const deniedNames = ["CLAUDE_CONFIG_DIR", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX"];
+const deniedNames = [
+	"CLAUDE_CONFIG_DIR", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX",
+	"LD_PRELOAD", "LD_LIBRARY_PATH", "ZDOTDIR", "GIT_SSH_COMMAND", "CLAUDE_CODE_ENABLE_TELEMETRY",
+	"NODE_TLS_REJECT_UNAUTHORIZED", "SSL_CERT_FILE",
+];
 function denied(name: string): boolean {
 	return authNames.includes(name) || /^ANTHROPIC_.*_URL$/.test(name) ||
-		/_PROXY$/i.test(name) || /^CLAUDE_CODE_USE_/.test(name) || deniedNames.includes(name);
+		/_PROXY$/i.test(name) || /^(CLAUDE_CODE_USE_|DYLD_|GIT_CONFIG_|OTEL_)/.test(name) || deniedNames.includes(name);
 }
+
+function projectDotenv(cwd: string, base: Record<string, string>) {
+	const names = new Set<string>();
+	// Include Bun's default mode and both launch/current modes: NODE_ENV may
+	// itself have been changed by dotenv or by a parent that preloaded it.
+	const modes = new Set(["development", launcher.get("NODE_ENV"), base.NODE_ENV, process.env.NODE_ENV]);
+	const files = [".env", ".env.local"];
+	for (const mode of modes) if (mode) files.push(`.env.${mode}`, `.env.${mode}.local`);
+	const values = new Set(getDotenvEnvValues(cwd, process.env));
+	for (const file of files) for (const [name, value] of Object.entries(parseEnvFile(join(cwd, file)))) {
+		names.add(name);
+		values.add(value);
+	}
+	return { names, values };
+}
+
 export function buildClaudeEnv(
 	mode: "discovery" | "generation" | "summary",
 	options: { cwd?: string; trustedEnv?: string[] } = {},
 ): Record<string, string> {
+	const cwd = options.cwd ?? process.cwd();
 	const trusted = new Set(options.trustedEnv ?? []);
-	const discoveryBase = mode === "discovery" ? filterChildShellEnv(process.env, options.cwd ?? process.cwd()) : undefined;
+	const base = filterChildShellEnv(process.env, cwd);
+	const project = projectDotenv(cwd, base);
 	const result: Record<string, string> = {};
-	const removed: string[] = [];
-	for (const [name, value] of Object.entries(process.env)) {
-		if (value === undefined) continue;
+	for (const [name, value] of Object.entries(base)) {
+		// No mode or trust exception may take a value supplied by cwd dotenv,
+		// including dotenv that was already loaded by a parent process.
+		if (project.values.has(value) && (project.names.has(name) || trusted.has(name))) continue;
 		if (trusted.has(name)) { result[name] = value; continue; }
-		if (mode === "discovery") {
-			if (/^(PATH|HOME|USER|LANG|TMPDIR|TERM|LC_.*)$/.test(name)) {
-				if (discoveryBase?.[name] !== undefined) result[name] = discoveryBase[name];
-			} else if (authNames.includes(name) && launcher.has(name)) result[name] = launcher.get(name)!;
-			else removed.push(name);
-		} else if (denied(name)) {
-			if (launcher.has(name)) result[name] = launcher.get(name)!;
-			else removed.push(name);
-		} else result[name] = value;
+		if (denied(name) && (project.names.has(name) || launcher.get(name) !== value)) continue;
+		if (mode === "discovery" && !/^(PATH|HOME|USER|LANG|TMPDIR|TERM|LC_.*)$/.test(name) && !authNames.includes(name)) continue;
+		result[name] = value;
 	}
-	// HOME selects Claude's credential store too: pin it to the same account as
-	// trusted bridge policy unless global policy explicitly trusts that name.
-	if (!trusted.has("HOME")) result.HOME = TRUSTED_HOME;
+	// HOME selects Claude's credential store too. Rejected overrides retain the
+	// passwd account pin, even when HOME was explicitly named in trustedEnv.
+	if (!trusted.has("HOME") || result.HOME === undefined) result.HOME = TRUSTED_HOME;
+	// Bun exposes some built-in variables through non-enumerable accessors.
+	const candidates = new Set([...Object.keys(process.env), ...deniedNames]);
+	const removed = [...candidates].filter((name) => process.env[name] !== undefined && result[name] === undefined);
 	if (removed.length) console.error(`claude-bridge: removed child environment names: ${removed.sort().join(", ")}`);
 	result.ENABLE_CLAUDEAI_MCP_SERVERS = "0";
 	if (mode === "discovery") result.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";

@@ -78,36 +78,40 @@ model tools, not processes authorized by globally enabled settings/hooks.
 
 ## Child environment policy
 
-All SDK queries use one bridge environment builder. Discovery starts with only
-`PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TMPDIR`, `TERM`, and first-party auth:
-`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`. Auth values
-must come from the launcher, not project dotenv. Standard account-file login
-needs no token variable. Discovery does not implicitly opt into third-party cloud
-providers, proxies, or alternative credential directories.
+Every SDK query starts from OMP's `filterChildShellEnv(process.env, cwd)`.
+Provider generation, continuation, compact summaries, AskClaude and discovery
+never copy raw environment values back into that base. Cwd dotenv additions
+are removed whatever their names, not only when they match a denylist.
 
-Provider generation, continuation, compact summaries and AskClaude retain the
-process environment except these denied names/patterns:
+Discovery further permits only `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TMPDIR`,
+`TERM` and first-party auth: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`CLAUDE_CODE_OAUTH_TOKEN`. Standard account-file login needs no token variable.
+Proxies, third-party providers and alternative credential directories require
+explicit global trust rather than implicit discovery inheritance.
+
+A second defence-in-depth layer denies:
 `ANTHROPIC_*_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`,
 `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `*_PROXY`/`*_proxy`,
 `NODE_EXTRA_CA_CERTS`, `NODE_OPTIONS`, `BASH_ENV`, `ENV`,
-`CLAUDE_CODE_SHELL_PREFIX`, and `CLAUDE_CODE_USE_*`.
-Authoritative launcher values are preserved/restored for generation. Linux uses
-the original exec environment in `/proc/self/environ`, matching installed OMP's
-private launch-map implementation. OMP's public `filterChildShellEnv` additionally
-removes cwd dotenv values from discovery's baseline. Without authoritative
-provenance, denied values fail closed. On non-Linux hosts or without procfs,
-launcher exceptions require `trustedEnv`; a Bun no-env-file flag alone is not
-proof because OMP can load dotenv later.
+`CLAUDE_CODE_SHELL_PREFIX`, `CLAUDE_CODE_USE_*`, `LD_PRELOAD`, `LD_LIBRARY_PATH`,
+`DYLD_*`, `ZDOTDIR`, `GIT_CONFIG_*`, `GIT_SSH_COMMAND`, `OTEL_*`,
+`CLAUDE_CODE_ENABLE_TELEMETRY`, `NODE_TLS_REJECT_UNAUTHORIZED` and `SSL_CERT_FILE`.
 
-Only the trusted global `provider.trustedEnv` list may re-allow exact variable
-names; project lists are ignored. This explicitly trusts the current value,
-including dotenv values, for generation **and discovery**. Never use it for
-untrusted endpoint, loader, proxy or auth values. `HOME` is pinned to the passwd
-account unless globally listed. Removed names are logged, never values.
-Bridge cloud-MCP/compaction/isolation switches remain enforced.
+Linux's original `/proc/self/environ` checks launcher ownership, but a value
+must already be in the provenance-filtered base; raw launcher values are never
+reinserted. A denied name defined by cwd dotenv is untrusted even if a parent
+preloaded it, unless globally listed in `provider.trustedEnv`.
 
-The denylist is intentionally not an environment sandbox. Unlisted environment
-variables, `PATH` executable resolution, OMP's own extension/settings loading,
-Claude Code managed policy, and globally authorized settings remain trusted.
-Use a trusted launcher and explicit trusted executable for untrusted repositories.
-Upstream Claude Code environment additions require reviewing this policy.
+Only global `trustedEnv` may allow exact names. It takes values only from the
+filtered base and never accepts a value defined by cwd dotenv. A safe original
+launcher value restored by OMP may survive; the project's replacement may not.
+Without authoritative launcher provenance, denied names require that global
+opt-in. A Bun no-env-file flag alone is not provenance, since OMP can load dotenv
+later. Rejected HOME overrides retain the passwd account pin. Removed names
+are logged, never values; bridge isolation switches remain enforced.
+
+This is not an OS sandbox. A trusted launcher's non-project environment, PATH
+resolution, OMP's own extension/settings loading, the SDK/CLI and selected
+executable, Claude managed policy and globally authorized hooks/tools remain
+trusted. Filtering a future child's environment cannot undo code already
+executed in the parent. Use a trusted launcher and explicit trusted executable.
