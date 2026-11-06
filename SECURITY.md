@@ -77,6 +77,23 @@ the selected executable, OMP extensions, and tools the user authorizes remain
 trusted: this bridge is not an OS sandbox. Read-only AskClaude modes restrict
 model tools, not processes authorized by globally enabled settings/hooks.
 
+## HOME pin migration
+
+Claude children now default to the passwd account's HOME, not an inherited
+custom HOME. This affects Claude credentials as well as bridge configuration.
+Users of custom HOME/profile directories must keep trusted bridge policy at
+`<passwd home>/.omp/agent/claude-bridge.json`.
+
+Move/sign in to Claude's ordinary account-home credential store, or explicitly
+list `CLAUDE_CONFIG_DIR` (or `HOME`) in global `provider.trustedEnv` and set that
+variable in the trusted launcher. The value must survive provenance filtering
+and must not be a cwd dotenv value; project config cannot authorize it.
+
+POSIX startup requires an account entry and the system lookup binary:
+`/usr/bin/getent` on Linux, `/usr/bin/id -P` on macOS. Missing entries, missing
+binaries, invalid records and lookup timeouts produce a bridge-specific error
+and refuse to load trusted configuration. There is no fallback to HOME.
+
 ## Child environment policy
 
 Every SDK query starts from OMP's `filterChildShellEnv(process.env, cwd)`.

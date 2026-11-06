@@ -56,6 +56,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Executable paths are honored only from global bridge config. Trusted global
   config and snapshot use the passwd home, independent of inherited/cwd HOME
   and OMP agent/config/profile overrides; native-home mismatches warn.
+- Failed passwd lookup now reports a bridge-specific reason and refuses startup,
+  without falling back to HOME or logging raw lookup output. Documented migration
+  for custom-HOME Claude credentials and trusted global policy.
 - Non-object config becomes empty; non-array settings sources become empty and
   warn. Global/project config and snapshots share no-follow, regular-file-only,
   1-MB-capped reads. Config parse failures never log input contents.

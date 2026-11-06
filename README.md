@@ -228,6 +228,12 @@ You can also bake it into a skill or AGENTS.md, e.g. *"Always call AskClaude to 
 
 Trusted config is read from the account's passwd home at `.omp/agent/claude-bridge.json`; project config is `.omp/claude-bridge.json`. `HOME`, cwd dotenv and OMP directory/profile overrides cannot redirect the trusted POSIX file. A native/passwd home mismatch warns. Projects may override ordinary settings but only tighten settings/MCP and AskClaude capability ceilings. Executable, tool name/description, and `provider.trustedEnv` are global-only. See [SECURITY.md](SECURITY.md) for child-environment filtering, launcher provenance, and remaining trust limits. A starter file lives at [`claude-bridge.example.json`](claude-bridge.example.json).
 
+Migration: Claude children now use the passwd account's HOME for credentials.
+Custom-HOME users must migrate their credential store or explicitly trust a
+safe launcher HOME/CLAUDE_CONFIG_DIR in global config. See
+[HOME pin migration](SECURITY.md#home-pin-migration), including account-lookup
+requirements and fail-closed diagnostics.
+
 ```json
 {
   "askClaude": {
