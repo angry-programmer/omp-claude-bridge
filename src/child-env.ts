@@ -15,7 +15,6 @@ function launchEnvironment(): Map<string, string> {
 			}));
 		} catch { /* Fail closed when procfs is unavailable. */ }
 	}
-	if (process.execArgv.includes("--no-env-file")) return new Map(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
 	return new Map();
 }
 const launcher = launchEnvironment();

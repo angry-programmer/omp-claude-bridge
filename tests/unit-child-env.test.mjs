@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const modulePath = new URL("../src/child-env.ts", import.meta.url).pathname;
-const denied = ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "http_proxy", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_CODE_USE_BEDROCK"];
-function childEnv({ trustedEnv = [], launcher = {} } = {}) {
+const denied = ["ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "http_proxy", "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "CLAUDE_CODE_USE_BEDROCK"];
+function childEnv({ trustedEnv = [], launcher = {}, noProvenance = false } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "bridge-env-"));
 	// Loader variables are set after startup, not executed by the test runner.
 	writeFileSync(join(root, ".env"), "BRIDGE_PROJECT_VALUE=project\nANTHROPIC_BASE_URL=https://project.invalid\n");
@@ -16,8 +16,10 @@ function childEnv({ trustedEnv = [], launcher = {} } = {}) {
 	try {
 		const child = spawnSync(process.execPath, ["--eval", `
 			for (const key of ${JSON.stringify(denied)}) process.env[key] = "project-secret-marker";
+			${noProvenance ? `await import(${JSON.stringify(import.meta.resolve("@oh-my-pi/pi-utils"))}); await import(${JSON.stringify(new URL("../src/trusted-paths.ts", import.meta.url).pathname)}); Object.defineProperty(process, "platform", { value: "darwin" }); process.execArgv.push("--no-env-file");` : ""}
 			const { buildClaudeEnv } = await import(${JSON.stringify(modulePath)});
-			console.log(JSON.stringify({ generation: buildClaudeEnv("generation", { trustedEnv: ${JSON.stringify(trustedEnv)} }), discovery: buildClaudeEnv("discovery", { trustedEnv: ${JSON.stringify(trustedEnv)} }) }));
+			const selected = env => Object.fromEntries([...${JSON.stringify(denied)}, "BRIDGE_PROJECT_VALUE", "ENABLE_CLAUDEAI_MCP_SERVERS"].filter(key => env[key] !== undefined).map(key => [key, env[key]]));
+			console.log(JSON.stringify({ generation: selected(buildClaudeEnv("generation", { trustedEnv: ${JSON.stringify(trustedEnv)} })), discovery: selected(buildClaudeEnv("discovery", { trustedEnv: ${JSON.stringify(trustedEnv)} })) }));
 		`], { cwd: root, env, encoding: "utf8" });
 		assert.equal(child.status, 0, child.stderr);
 		return { ...JSON.parse(child.stdout), warnings: child.stderr };
@@ -52,4 +54,11 @@ test("explicit trusted names reallow project values, including discovery", () =>
 		assert.equal(env.CLAUDE_CONFIG_DIR, "project-secret-marker");
 		assert.equal(env.ANTHROPIC_API_KEY, undefined);
 	}
+});
+
+test("without authoritative launcher provenance, a no-env-file flag cannot bless runtime values", () => {
+	const { generation, discovery } = childEnv({ noProvenance: true });
+	assert.equal(generation.ANTHROPIC_BASE_URL, undefined);
+	assert.equal(generation.ANTHROPIC_API_KEY, undefined);
+	assert.equal(discovery.ANTHROPIC_API_KEY, undefined);
 });

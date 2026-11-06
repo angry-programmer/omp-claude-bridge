@@ -95,8 +95,9 @@ Authoritative launcher values are preserved/restored for generation. Linux uses
 the original exec environment in `/proc/self/environ`, matching installed OMP's
 private launch-map implementation. OMP's public `filterChildShellEnv` additionally
 removes cwd dotenv values from discovery's baseline. Without authoritative
-provenance, denied values fail closed (unless dotenv loading was disabled at
-launch).
+provenance, denied values fail closed. On non-Linux hosts or without procfs,
+launcher exceptions require `trustedEnv`; a Bun no-env-file flag alone is not
+proof because OMP can load dotenv later.
 
 Only the trusted global `provider.trustedEnv` list may re-allow exact variable
 names; project lists are ignored. This explicitly trusts the current value,
