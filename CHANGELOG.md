@@ -60,8 +60,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without falling back to HOME or logging raw lookup output. Documented migration
   for custom-HOME Claude credentials and trusted global policy.
 - Non-object config becomes empty; non-array settings sources become empty and
-  warn. Global/project config and snapshots share no-follow, regular-file-only,
-  1-MB-capped reads. Config parse failures never log input contents.
+  warn. Global/project config and snapshots share regular-file-only,
+  1-MB-capped reads. Config parse failures never log input contents. Global
+  read failures other than a missing file now disable AskClaude/full mode,
+  enforce empty settings sources and strict MCP, and ignore project overrides.
+  Protected uid/root-owned global symlink targets support dotfile managers;
+  project config and snapshots remain no-follow where the OS supports it.
 - Committed subprocess regression exercises real config on provider and AskClaude
   generation with both system-prompt append settings.
 - Discovery receives only its named provider options, never arbitrary project

@@ -46,14 +46,15 @@ export interface Config {
 	};
 }
 
-export function tryParseJson(path: string): Partial<Config> {
+function readConfig(path: string, global = false): Partial<Config> | undefined {
 	try {
-		const value = readJsonFile(path);
+		const value = readJsonFile(path, global);
 		return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 	} catch (e) {
 		const code = (e as NodeJS.ErrnoException)?.code;
-		if (code !== "ENOENT") console.error(`claude-bridge: failed to read config ${path}: ${code ?? "invalid JSON or unsafe file"}`);
-		return {};
+		if (code === "ENOENT") return {};
+		console.error(`claude-bridge: failed to read ${global ? "global " : ""}config ${path}: ${code ?? "invalid JSON or unsafe file"}${global ? "; AskClaude disabled, full mode denied, settings disabled and strict MCP enforced" : ""}`);
+		return undefined;
 	}
 }
 
@@ -65,8 +66,12 @@ function settingSources(value: unknown): SettingSource[] | undefined {
 }
 
 export function loadConfig(cwd: string): Config {
-	const global = tryParseJson(TRUSTED_CONFIG_PATH);
-	const project = tryParseJson(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json"));
+	const global = readConfig(TRUSTED_CONFIG_PATH, true);
+	if (!global) return {
+		askClaude: { enabled: false, allowFullMode: false, defaultMode: "read" },
+		provider: { settingSources: [], strictMcpConfig: true, trustedEnv: [] },
+	};
+	const project = readConfig(join(cwd, CONFIG_DIR_NAME, "claude-bridge.json")) ?? {};
 	const trustedSources = settingSources(global.provider?.settingSources) ?? [];
 	const projectSources = settingSources(project.provider?.settingSources);
 	if (projectSources?.some((source) => !trustedSources.includes(source))) {

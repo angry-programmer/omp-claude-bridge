@@ -45,11 +45,22 @@ closed if the lookup fails. A mismatch with the native home logs a warning.
 Windows uses its native account home. Non-object JSON becomes `{}`; malformed
 `settingSources` becomes `[]` with a warning.
 
-The last-good catalog lives beside that trusted global file. Both config files
-and the catalog share a no-follow, regular-file-only JSON reader capped at 1 MB,
-including concurrent growth. Invalid JSON errors never quote input contents.
+The last-good catalog lives beside that trusted global file. Config files
+and the catalog share a regular-file-only reader capped at 1 MB, including
+concurrent growth. Project config and snapshots reject final symlinks. For
+dotfile managers, global config alone may use a final symlink: its resolved
+target is opened no-follow, then checked to be a regular file owned by the
+account uid or root and not group/world-writable. A missing global file uses
+defaults; any other global read/parse failure disables AskClaude and full mode,
+disables settings sources, enforces strict MCP, ignores project overrides, and
+logs one content-free error. Invalid JSON errors never quote input contents.
 Successful discovery alone replaces the snapshot atomically with mode 0600;
 failures never rewrite it.
+
+On win32, Node/Bun do not expose `O_NOFOLLOW`/`O_NONBLOCK`; those flags become
+zero, so final symlinks are not rejected atomically there. Regular-file/size
+checks still apply. Git's usual `core.symlinks=false` limits repository-created
+symlinks, but is not a filesystem security boundary.
 
 Catalog discovery is initialization-only and always uses `settingSources: []`,
 `strictMcpConfig: true`, an empty MCP server map, and disabled cloud MCP.
