@@ -25,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Claude effort levels now preserve their names end to end. In particular,
   `xhigh` is no longer rewritten to `max`; AskClaude keeps SDK-provided `max`
   separate, while the OMP model picker exposes only OMP-native exact names.
+- Verified base, `-200k`, and `[1m]` selector generation for all four current
+  releases. `-200k` sets OMP's compaction threshold; Claude Code 2.1.317
+  still reports native 1M context for the bare runtime selector.
 
 ### Removed
 - Opus 4.6/4.7/4.8, Sonnet 4.6, and Fable 5 from the default catalog.

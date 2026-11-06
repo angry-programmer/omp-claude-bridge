@@ -126,7 +126,14 @@ Both windows stay in the picker regardless of this setting wherever supported. E
 | `claude-sonnet-5` | ✓ | ✓ | 1M |
 | `claude-haiku-4-5` | ✓ | — | 200K |
 
-The suffixed alternate exists only for the window that isn't the default — under `auto` you get `claude-opus-5-5` (1M) + `claude-opus-5-5-200k`, and under `"200k"` you get `claude-opus-5-5` (200K) + `claude-opus-5-5-1m`. The bridge requests `[1m]` for 1M and the bare selector for 200K, following Claude Code's selector convention.
+The suffixed alternate exists only for the window that isn't the default — under `auto` you get `claude-opus-5-5` (1M) + `claude-opus-5-5-200k`, and under `"200k"` you get `claude-opus-5-5` (200K) + `claude-opus-5-5-1m`. The bridge sends `[1m]` for 1M and the bare selector for 200K.
+
+Claude Code 2.1.317 accepted base, bridge `-200k` (translated to bare), and
+`[1m]` selectors for Opus/Sonnet/Haiku 5.5 and Fable 5.1 in twelve real
+one-word generations. All reported **1M served context**: `-200k` controls
+OMP's advertised context/compaction threshold, not a Claude Code context cap.
+Runtime output limits were 128K for the three 5.5 releases and 64K for Fable
+5.1; Fable's catalog maximum is 128K, not its current runtime default.
 
 > Forcing 1M is a *request*: some models may still be **served** 200K by your subscription entitlement. Set `CLAUDE_BRIDGE_DEBUG=1` to log the served window as an entitlement diagnostic (see [Debugging](#debugging)).
 
