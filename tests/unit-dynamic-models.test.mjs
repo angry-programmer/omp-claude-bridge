@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, routeClaudeEffort, setDynamicRuntimeCatalogActive } from "../src/models.ts";
+import { buildConfiguredModels, buildVariantModels, claudeCodeModelId, projectSupportedModels, resolveModel, routeClaudeEffort, setDynamicRuntimeCatalogActive } from "../src/models.ts";
 import { discoverClaudeModels, discoverProviderModels } from "../src/discovery.ts";
 
 const SETTINGS = { contextWindow: "auto" };
@@ -184,4 +184,11 @@ test("hidden aliases log their exact migration target only once", () => {
 	assert.equal(warnings.length, 2);
 	assert.match(warnings[0], /hidden alias "review-hidden-alias".*claude-future-6/);
 	assert.match(warnings[1], /hidden alias "fable\[1m\]".*claude-fable-5-1\[1m\]/);
+});
+
+test("exact Sonnet 5 wins over earlier Sonnet 5.5 while short names still match", () => {
+	const models = [{ id: "claude-sonnet-5-5" }, { id: "claude-sonnet-5" }];
+	assert.equal(resolveModel(models, "claude-sonnet-5").id, "claude-sonnet-5");
+	assert.equal(resolveModel(models, "CLAUDE-SONNET-5").id, "claude-sonnet-5");
+	assert.equal(resolveModel(models, "sonnet").id, "claude-sonnet-5-5");
 });

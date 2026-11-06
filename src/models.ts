@@ -361,7 +361,7 @@ export function claudeCodeModelId(model: { id: string }, settings: ContextWindow
 
 export function resolveModel<T extends { id: string }>(models: T[], input: string): T | undefined {
 	const lower = input.toLowerCase();
-	return models.find((m) => m.id === lower || m.id.includes(lower));
+	return models.find((m) => m.id === lower) ?? models.find((m) => m.id.includes(lower));
 }
 
 function variantName(baseName: string, contextWindow: number): string {

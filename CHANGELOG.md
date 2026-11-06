@@ -28,6 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - AskClaude defaults to exact `claude-opus-5-5`, not the moving `opus` alias.
+- Static/AskClaude model lookup checks exact ids before substring short names,
+  so selecting Sonnet 5 never selects an earlier-listed Sonnet 5.5 instead.
 - Retained Opus/Sonnet/Haiku 5.5 and Fable 5.1 metadata: 1M defaults,
   200K variants, 128,000 output tokens, and native adaptive-thinking efforts.
   Static mode recognizes these ids without unknown-context warnings.
