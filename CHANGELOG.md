@@ -57,7 +57,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   config and snapshot use the passwd home, independent of inherited/cwd HOME
   and OMP agent/config/profile overrides; native-home mismatches warn.
 - Non-object config becomes empty; non-array settings sources become empty and
-  warn. Snapshot reads reject symlinks/non-regular files and exceed-1-MB content.
+  warn. Global/project config and snapshots share no-follow, regular-file-only,
+  1-MB-capped reads. Config parse failures never log input contents.
 - Committed subprocess regression exercises real config on provider and AskClaude
   generation with both system-prompt append settings.
 - Discovery receives only its named provider options, never arbitrary project

@@ -5,8 +5,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { projectSupportedModels, type ContextWindowMode } from "./models.js";
 import { TRUSTED_AGENT_DIR } from "./trusted-paths.js";
-import { constants } from "node:fs";
-import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { readJsonFile } from "./read-json-file.js";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildClaudeEnv } from "./child-env.js";
@@ -72,27 +72,6 @@ export async function discoverClaudeModels(options: ClaudeModelDiscoveryOptions 
 	}
 }
 
-async function readSnapshot(path: string): Promise<unknown> {
-	const limit = 1024 * 1024;
-	// NONBLOCK prevents a planted FIFO from blocking before fstat rejects it.
-	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-	try {
-		const stat = await file.stat();
-		if (!stat.isFile() || stat.size > limit) throw new Error("Invalid bridge model cache file");
-		const buffer = Buffer.alloc(limit + 1);
-		let length = 0;
-		while (length < buffer.length) {
-			const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
-			if (!bytesRead) break;
-			length += bytesRead;
-		}
-		if (length > limit) throw new Error("Bridge model cache exceeds 1 MB");
-		return JSON.parse(buffer.toString("utf8", 0, length));
-	} finally {
-		await file.close();
-	}
-}
-
 /** Provider catalog boundary: discovery is optional; retained exact ids are not. */
 export async function discoverProviderModels(
 	piAiModels: Parameters<typeof projectSupportedModels>[1] = [],
@@ -106,7 +85,7 @@ export async function discoverProviderModels(
 		let models;
 		let source = "retained exact catalog";
 		try {
-			const saved = await readSnapshot(cacheFile) as { version?: unknown; savedAt?: unknown; models?: unknown };
+			const saved = readJsonFile(cacheFile) as { version?: unknown; savedAt?: unknown; models?: unknown };
 			if (saved?.version !== 1 || typeof saved.savedAt !== "number" ||
 				!Number.isFinite(saved.savedAt) || saved.savedAt <= 0 || saved.savedAt > Date.now() ||
 				!Array.isArray(saved.models) || saved.models.length === 0 ||

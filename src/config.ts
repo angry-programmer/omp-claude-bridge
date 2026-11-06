@@ -4,7 +4,7 @@
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { ContextWindowMode } from "./models.js";
 import { CONFIG_DIR_NAME } from "@oh-my-pi/pi-utils";
-import { existsSync, readFileSync } from "fs";
+import { readJsonFile } from "./read-json-file.js";
 import { TRUSTED_AGENT_DIR } from "./trusted-paths.js";
 import { join } from "path";
 
@@ -47,12 +47,12 @@ export interface Config {
 }
 
 export function tryParseJson(path: string): Partial<Config> {
-	if (!existsSync(path)) return {};
 	try {
-		const value = JSON.parse(readFileSync(path, "utf-8"));
+		const value = readJsonFile(path);
 		return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 	} catch (e) {
-		console.error(`claude-bridge: failed to parse ${path}: ${e}`);
+		const code = (e as NodeJS.ErrnoException)?.code;
+		if (code !== "ENOENT") console.error(`claude-bridge: failed to read config ${path}: ${code ?? "invalid JSON or unsafe file"}`);
 		return {};
 	}
 }
